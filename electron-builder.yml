@@ -1,4 +1,4 @@
-appId: com.electron.app
+appId: com.monitor.app
 productName: monitor.log
 directories:
   buildResources: build
@@ -14,7 +14,7 @@ asarUnpack:
 win:
   executableName: monitor.log
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${name}-${version}.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
@@ -30,14 +30,12 @@ dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
   target:
-    - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: ankitsharma745
   category: Utility
-appImage:
-  artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: AnkitSharma745
+  repo: Monitoring.Log
+  private: false

@@ -1,10 +1,14 @@
 {
   "name": "monitor.log",
   "version": "1.0.0",
-  "description": "Enterprise-grade production Electron desktop platform foundation",
+  "description": "monitor.log",
   "main": "./out/main/main.js",
-  "author": "Platform Architecture Team",
-  "homepage": "https://electron-vite.org",
+  "author": "ankitsharma745",
+  "homepage": "https://github.com/ankitsharma745/Monitoring.Log",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ankitsharma745/Monitoring.Log"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
