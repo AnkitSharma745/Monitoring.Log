@@ -2,7 +2,7 @@
   "name": "monitor.log",
   "version": "1.0.0",
   "description": "monitor.log",
-  "main": "./out/main/main.js",
+  "main": "./out/main/mainProcess.js",
   "author": "ankitsharma745",
   "homepage": "https://github.com/ankitsharma745/Monitoring.Log",
   "repository": {
