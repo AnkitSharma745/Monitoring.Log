@@ -1,113 +1,91 @@
-import { useState } from 'react';
-import type { JSX } from 'react';
+import { useEffect, useMemo, type JSX } from 'react';
+
+import { FileSourcePanel } from './features/files/components/FileSourcePanel';
+import { FileViewer } from './features/files/components/FileViewer';
+import { useFileRuntime } from './features/files/hooks/useFileRuntime';
+import { useFileSources } from './features/files/hooks/useFileSources';
 
 function App(): JSX.Element {
-  const [message, setMessage] = useState('');
+  const fileSources = useFileSources();
+  const fileRuntime = useFileRuntime();
+  const { loadFile } = fileRuntime;
+  const watchedPaths = useMemo(
+    () => new Set(Object.keys(fileRuntime.watchingFiles)),
+    [fileRuntime.watchingFiles],
+  );
+  const selectedDocument = fileSources.selectedFilePath
+    ? (fileRuntime.documentsByPath[fileSources.selectedFilePath] ?? null)
+    : null;
+  const isBusy = fileSources.isBusy || fileRuntime.isBusy;
+  const statusMessage = fileRuntime.runtimeMessage ?? fileSources.statusMessage;
 
-  const handleLog = (level: string): void => {
-    if (!message) return;
-    // @ts-ignore (exposed via preload)
-    window.api.log(level, message, 'App.tsx', { source: 'Renderer' });
-    setMessage('');
+  useEffect(() => {
+    if (!fileSources.selectedFilePath) {
+      return;
+    }
+
+    void loadFile(fileSources.selectedFilePath);
+  }, [loadFile, fileSources.selectedFilePath]);
+
+  const handleToggleWatch = (filePath: string): void => {
+    if (watchedPaths.has(filePath)) {
+      void fileRuntime.stopWatching(filePath);
+      return;
+    }
+
+    void fileRuntime.startWatching(filePath);
   };
 
   return (
-    <div
-      style={{
-        padding: '40px',
-        fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
-        background: '#f4f4f9',
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-      }}
-    >
-      <div
-        style={{
-          background: 'white',
-          padding: '30px',
-          borderRadius: '12px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-          width: '100%',
-          maxWidth: '500px',
+    <main className="app-shell">
+      <FileSourcePanel
+        directories={fileSources.directories}
+        files={fileSources.files}
+        selectedFilePath={fileSources.selectedFilePath}
+        watchedPaths={watchedPaths}
+        scanIssues={fileSources.scanIssues}
+        isBusy={isBusy}
+        onSelectFile={fileSources.selectFile}
+        onToggleWatch={handleToggleWatch}
+        onSelectFiles={() => {
+          void fileSources.selectFilesFromDialog();
         }}
-      >
-        <h1 style={{ margin: '0 0 20px 0', color: '#333', fontSize: '24px' }}>Log Monitor</h1>
-        <p style={{ color: '#666', marginBottom: '20px' }}>
-          Type a message below to test the centralized logging system.
-        </p>
+        onSelectDirectory={() => {
+          void fileSources.selectDirectoryFromDialog();
+        }}
+        onDropFiles={(files) => {
+          void fileSources.scanDroppedFiles(files);
+        }}
+      />
 
-        <div style={{ marginBottom: '20px' }}>
-          <input
-            type="text"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="What happened?..."
-            style={{
-              padding: '12px',
-              width: '100%',
-              borderRadius: '6px',
-              border: '1px solid #ddd',
-              fontSize: '16px',
-              boxSizing: 'border-box',
-              outline: 'none',
-            }}
-          />
+      <section className="workspace">
+        <div className="workspace__topbar">
+          <div>
+            <strong>Monitoring.Log</strong>
+            <span>Phase 2 file source runtime</span>
+          </div>
+          {statusMessage && <div className="workspace__status">{statusMessage}</div>}
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={() => handleLog('info')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: '6px',
-              border: 'none',
-              background: '#3498db',
-              color: 'white',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-            }}
-          >
-            Info
-          </button>
-          <button
-            onClick={() => handleLog('warn')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: '6px',
-              border: 'none',
-              background: '#f39c12',
-              color: 'white',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-            }}
-          >
-            Warn
-          </button>
-          <button
-            onClick={() => handleLog('error')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: '6px',
-              border: 'none',
-              background: '#e74c3c',
-              color: 'white',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-            }}
-          >
-            Error
-          </button>
-        </div>
-      </div>
-      <div style={{ marginTop: '20px', color: '#888', fontSize: '12px' }}>
-        Logs will be saved to C:/Filuet/Monitoring_Logs
-      </div>
-    </div>
+        <FileViewer
+          selectedFile={fileSources.selectedFile}
+          document={selectedDocument}
+          isWatching={
+            fileSources.selectedFilePath ? watchedPaths.has(fileSources.selectedFilePath) : false
+          }
+          isBusy={isBusy}
+          onReload={(filePath) => {
+            void fileRuntime.loadFile(filePath);
+          }}
+          onStartWatching={(filePath) => {
+            void fileRuntime.startWatching(filePath);
+          }}
+          onStopWatching={(filePath) => {
+            void fileRuntime.stopWatching(filePath);
+          }}
+        />
+      </section>
+    </main>
   );
 }
 
