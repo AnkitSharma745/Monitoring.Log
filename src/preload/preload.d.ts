@@ -17,6 +17,9 @@ import type { IpcResponse } from '@shared/contracts/ipc';
 type RendererLogLevel = 'error' | 'warn' | 'info' | 'debug';
 
 export interface DesktopApi {
+  app: {
+    reloadWindow: () => Promise<void>;
+  };
   files: {
     selectFiles: () => Promise<IpcResponse<FilePickerResult>>;
     selectDirectory: () => Promise<IpcResponse<DirectoryPickerResult>>;

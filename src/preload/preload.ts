@@ -15,6 +15,7 @@ import {
   type WatchFileResult,
 } from '@shared/contracts/files';
 import { type IpcResponse } from '@shared/contracts/ipc';
+import { APP_IPC_CHANNELS } from '@shared/ipc/appChannels';
 import { FILE_IPC_CHANNELS } from '@shared/ipc/fileChannels';
 
 type RendererLogLevel = 'error' | 'warn' | 'info' | 'debug';
@@ -31,6 +32,10 @@ const invokeFileChannel = <T>(channel: string, payload?: unknown): Promise<IpcRe
 };
 
 const desktop = {
+  app: {
+    reloadWindow: (): Promise<void> =>
+      ipcRenderer.invoke(APP_IPC_CHANNELS.reloadWindow) as Promise<void>,
+  },
   files: {
     selectFiles: (): Promise<IpcResponse<FilePickerResult>> =>
       invokeFileChannel<FilePickerResult>(FILE_IPC_CHANNELS.selectFiles),

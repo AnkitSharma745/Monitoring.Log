@@ -1,92 +1,33 @@
-import { useEffect, useMemo, type JSX } from 'react';
+import { useEffect, type JSX } from 'react';
 
-import { FileSourcePanel } from './features/files/components/FileSourcePanel';
-import { FileViewer } from './features/files/components/FileViewer';
-import { useFileRuntime } from './features/files/hooks/useFileRuntime';
-import { useFileSources } from './features/files/hooks/useFileSources';
+import { AppLayout } from '@renderer/features/layout/components/AppLayout';
+import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 
 function App(): JSX.Element {
-  const fileSources = useFileSources();
-  const fileRuntime = useFileRuntime();
-  const { loadFile } = fileRuntime;
-  const watchedPaths = useMemo(
-    () => new Set(Object.keys(fileRuntime.watchingFiles)),
-    [fileRuntime.watchingFiles],
-  );
-  const selectedDocument = fileSources.selectedFilePath
-    ? (fileRuntime.documentsByPath[fileSources.selectedFilePath] ?? null)
-    : null;
-  const isBusy = fileSources.isBusy || fileRuntime.isBusy;
-  const statusMessage = fileRuntime.runtimeMessage ?? fileSources.statusMessage;
+  const themeMode = useFileMonitorStore((state) => state.themeMode);
 
   useEffect(() => {
-    if (!fileSources.selectedFilePath) {
-      return;
-    }
+    const root = document.documentElement;
+    root.classList.toggle('theme-dark', themeMode === 'dark');
+    root.dataset['theme'] = themeMode;
+  }, [themeMode]);
 
-    void loadFile(fileSources.selectedFilePath);
-  }, [loadFile, fileSources.selectedFilePath]);
+  useEffect(() => {
+    const removeUpdateListener = window.desktop.files.onFileUpdated((event) => {
+      useFileMonitorStore.getState().applyFileUpdate(event);
+    });
+    const removeErrorListener = window.desktop.files.onWatchError((event) => {
+      useFileMonitorStore.getState().applyWatchError(event);
+    });
 
-  const handleToggleWatch = (filePath: string): void => {
-    if (watchedPaths.has(filePath)) {
-      void fileRuntime.stopWatching(filePath);
-      return;
-    }
+    return () => {
+      removeUpdateListener();
+      removeErrorListener();
+      void useFileMonitorStore.getState().stopAllWatching();
+    };
+  }, []);
 
-    void fileRuntime.startWatching(filePath);
-  };
-
-  return (
-    <main className="app-shell">
-      <FileSourcePanel
-        directories={fileSources.directories}
-        files={fileSources.files}
-        selectedFilePath={fileSources.selectedFilePath}
-        watchedPaths={watchedPaths}
-        scanIssues={fileSources.scanIssues}
-        isBusy={isBusy}
-        onSelectFile={fileSources.selectFile}
-        onToggleWatch={handleToggleWatch}
-        onSelectFiles={() => {
-          void fileSources.selectFilesFromDialog();
-        }}
-        onSelectDirectory={() => {
-          void fileSources.selectDirectoryFromDialog();
-        }}
-        onDropFiles={(files) => {
-          void fileSources.scanDroppedFiles(files);
-        }}
-      />
-
-      <section className="workspace">
-        <div className="workspace__topbar">
-          <div>
-            <strong>Monitoring.Log</strong>
-            <span>Phase 2 file source runtime</span>
-          </div>
-          {statusMessage && <div className="workspace__status">{statusMessage}</div>}
-        </div>
-
-        <FileViewer
-          selectedFile={fileSources.selectedFile}
-          document={selectedDocument}
-          isWatching={
-            fileSources.selectedFilePath ? watchedPaths.has(fileSources.selectedFilePath) : false
-          }
-          isBusy={isBusy}
-          onReload={(filePath) => {
-            void fileRuntime.loadFile(filePath);
-          }}
-          onStartWatching={(filePath) => {
-            void fileRuntime.startWatching(filePath);
-          }}
-          onStopWatching={(filePath) => {
-            void fileRuntime.stopWatching(filePath);
-          }}
-        />
-      </section>
-    </main>
-  );
+  return <AppLayout />;
 }
 
 export default App;

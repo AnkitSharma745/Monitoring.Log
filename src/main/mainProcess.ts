@@ -1,6 +1,7 @@
 import { join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { app, shell, BrowserWindow, ipcMain } from 'electron';
+import { APP_IPC_CHANNELS } from '@shared/ipc/appChannels';
 import { FILE_IPC_CHANNELS } from '@shared/ipc/fileChannels';
 import { DirectoryScanner } from './filesystem/directoryScanner';
 import { FileDialogService } from './filesystem/fileDialogService';
@@ -105,6 +106,17 @@ if (!gotTheLock) {
       ipcMain.on('log-message', (_event, { level, message, fileName, data }) => {
         const logger = dailyLogger(fileName || 'renderer.ts');
         logger.log(level, message, { data });
+      });
+
+      ipcMain.handle(APP_IPC_CHANNELS.reloadWindow, (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        log.info('Renderer requested window reload.', { component: COMPONENT_NAME });
+
+        setTimeout(() => {
+          window?.reload();
+        }, 50);
+
+        return undefined;
       });
 
       registerFileSourceIpcHandlers(
