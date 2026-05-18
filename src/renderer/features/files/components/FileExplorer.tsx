@@ -1,6 +1,7 @@
 import { useMemo, useState, type JSX } from 'react';
 
 import { Badge } from '@renderer/components/ui/Badge';
+import { Tooltip } from '@renderer/components/ui/Tooltip';
 import { formatBytes } from '@renderer/features/files/fileFormatting';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 
@@ -233,20 +234,22 @@ const FileRow = ({
         </span>
       </button>
 
-      <button
-        type="button"
-        className={[
-          'h-6 rounded border px-2 text-[11px] font-semibold transition',
-          isWatched
-            ? 'border-success/50 bg-success-soft text-success'
-            : 'border-line bg-ink-900 text-subtle hover:border-accent hover:text-accent',
-        ].join(' ')}
-        onClick={() => {
-          onToggleWatch(file.path);
-        }}
-      >
-        {isWatched ? 'Live' : 'Watch'}
-      </button>
+      <Tooltip label={isWatched ? 'Stop watching file' : 'Start watching file'}>
+        <button
+          type="button"
+          className={[
+            'h-6 rounded border px-2 text-[11px] font-semibold transition',
+            isWatched
+              ? 'border-success/50 bg-success-soft text-success'
+              : 'border-line bg-ink-900 text-subtle hover:border-accent hover:text-accent',
+          ].join(' ')}
+          onClick={() => {
+            onToggleWatch(file.path);
+          }}
+        >
+          {isWatched ? 'Live' : 'Watch'}
+        </button>
+      </Tooltip>
     </div>
   );
 };

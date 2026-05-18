@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, type JSX } from 'react';
 
 import { Badge } from '@renderer/components/ui/Badge';
 import { formatBytes, formatDateTime } from '@renderer/features/files/fileFormatting';
+import { OpenLogTabs } from '@renderer/features/tabs/components/OpenLogTabs';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 import {
-  buildParsedLogLines,
-  filterLogLines,
+  buildLogEntries,
+  filterLogEntries,
   getLogSeverityStats,
   getVisibleLogText,
 } from '../logParsing';
@@ -18,31 +19,42 @@ export const LogViewer = (): JSX.Element => {
   const documentsByPath = useFileMonitorStore((state) => state.documentsByPath);
   const watchingFiles = useFileMonitorStore((state) => state.watchingFiles);
   const searchQuery = useFileMonitorStore((state) => state.searchQuery);
+  const activeSearchMatchIndex = useFileMonitorStore((state) => state.activeSearchMatchIndex);
   const preferences = useFileMonitorStore((state) => state.preferences);
   const isBusy = useFileMonitorStore((state) => state.pendingOperations > 0);
+  const setTabScrollPosition = useFileMonitorStore((state) => state.setTabScrollPosition);
+  const openTabs = useFileMonitorStore((state) => state.openTabs);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const selectedFile = selectedFilePath ? filesByPath[selectedFilePath] : null;
   const document = selectedFilePath ? documentsByPath[selectedFilePath] : null;
   const isWatching = selectedFilePath ? Boolean(watchingFiles[selectedFilePath]) : false;
-  const parsedLines = useMemo(
-    () => buildParsedLogLines(document?.content ?? '', searchQuery),
-    [document?.content, searchQuery],
+  const parsedEntries = useMemo(
+    () => buildLogEntries(document?.content ?? '', searchQuery, selectedFilePath ?? ''),
+    [document?.content, searchQuery, selectedFilePath],
   );
-  const displayLines = useMemo(
+  const displayEntries = useMemo(
     () =>
-      filterLogLines(
-        parsedLines,
+      filterLogEntries(
+        parsedEntries,
         searchQuery,
         preferences.filterToMatches,
         preferences.severityFilters,
       ),
-    [parsedLines, preferences.filterToMatches, preferences.severityFilters, searchQuery],
+    [parsedEntries, preferences.filterToMatches, preferences.severityFilters, searchQuery],
   );
   const stats = useMemo(
-    () => getLogSeverityStats(parsedLines, displayLines),
-    [displayLines, parsedLines],
+    () => getLogSeverityStats(parsedEntries, displayEntries),
+    [displayEntries, parsedEntries],
   );
-  const visibleText = useMemo(() => getVisibleLogText(displayLines), [displayLines]);
+  const visibleText = useMemo(() => getVisibleLogText(displayEntries), [displayEntries]);
+  const matchedEntries = useMemo(
+    () => displayEntries.filter((entry) => entry.matchesSearch),
+    [displayEntries],
+  );
+  const activeMatchEntry = matchedEntries.length
+    ? matchedEntries[activeSearchMatchIndex % matchedEntries.length]
+    : null;
+  const selectedTab = openTabs.find((tab) => tab.filePath === selectedFilePath);
 
   useEffect(() => {
     if (!preferences.autoScroll || !contentRef.current) {
@@ -53,19 +65,49 @@ export const LogViewer = (): JSX.Element => {
       top: contentRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [displayLines.length, document?.content, preferences.autoScroll]);
+  }, [displayEntries.length, document?.content, preferences.autoScroll]);
+
+  useEffect(() => {
+    if (!contentRef.current || !selectedTab || preferences.autoScroll) {
+      return;
+    }
+
+    contentRef.current.scrollTop = selectedTab.scrollTop;
+  }, [preferences.autoScroll, selectedTab]);
+
+  useEffect(() => {
+    if (!contentRef.current || !activeMatchEntry) {
+      return;
+    }
+
+    const element = contentRef.current.querySelector(
+      `[data-log-entry-id="${activeMatchEntry.id}"]`,
+    );
+    element?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [activeMatchEntry]);
+
+  const handleScroll = (): void => {
+    if (!selectedFilePath || !contentRef.current) {
+      return;
+    }
+
+    setTabScrollPosition(selectedFilePath, contentRef.current.scrollTop);
+  };
 
   if (!selectedFile) {
     return (
-      <section className="flex min-h-0 flex-1 items-center justify-center bg-ink-950">
-        <div className="max-w-sm text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-line bg-ink-900 text-xl text-accent">
-            ML
+      <section className="flex min-h-0 flex-1 flex-col bg-ink-950">
+        <OpenLogTabs />
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="max-w-sm text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-line bg-ink-900 text-xl text-accent">
+              ML
+            </div>
+            <h1 className="text-lg font-semibold text-readable">No log file selected</h1>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Select or drop a .log or .txt source to start viewing content.
+            </p>
           </div>
-          <h1 className="text-lg font-semibold text-readable">No log file selected</h1>
-          <p className="mt-2 text-sm leading-6 text-muted">
-            Select or drop a .log or .txt source to start viewing content.
-          </p>
         </div>
       </section>
     );
@@ -73,6 +115,7 @@ export const LogViewer = (): JSX.Element => {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-ink-950">
+      <OpenLogTabs />
       <header className="flex min-h-[86px] items-center justify-between gap-4 border-b border-line bg-panel px-5">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -105,17 +148,23 @@ export const LogViewer = (): JSX.Element => {
         isBusy={isBusy}
         activeFilePath={selectedFile.path}
         stats={stats}
+        matchCount={matchedEntries.length}
       />
 
-      <div ref={contentRef} className="min-h-0 flex-1 overflow-auto bg-ink-950 py-2">
-        {displayLines.length > 0 ? (
-          displayLines.map((line) => (
+      <div
+        ref={contentRef}
+        className="min-h-0 flex-1 overflow-auto bg-ink-950 py-2"
+        onScroll={handleScroll}
+      >
+        {displayEntries.length > 0 ? (
+          displayEntries.map((entry) => (
             <LogLine
-              key={`${selectedFile.path}-${line.lineNumber}-${line.text}`}
-              line={line}
+              key={entry.id}
+              entry={entry}
               searchQuery={searchQuery}
               showLineNumbers={preferences.showLineNumbers}
               lineWrap={preferences.lineWrap}
+              isActiveMatch={activeMatchEntry?.id === entry.id}
             />
           ))
         ) : (

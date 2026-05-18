@@ -1,9 +1,14 @@
 export type LogSeverity = 'error' | 'warn' | 'info' | 'debug' | 'neutral';
 
-export interface ParsedLogLine {
-  lineNumber: number;
-  text: string;
+export interface LogEntry {
+  id: string;
+  timestamp: string | null;
   severity: LogSeverity;
+  source: string | null;
+  message: string;
+  raw: string;
+  filePath: string;
+  lineNumber: number;
   matchesSearch: boolean;
 }
 
@@ -30,52 +35,78 @@ const severityPatterns: Array<{ severity: LogSeverity; pattern: RegExp }> = [
   { severity: 'debug', pattern: /(^|\s|\[)(debug|trace|verbose)(\]|\s|:|-|$)/i },
 ];
 
-export const buildParsedLogLines = (content: string, searchQuery: string): ParsedLogLine[] => {
+const timestampPatterns = [
+  /^\s*(?<timestamp>\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/,
+  /^\s*\[(?<timestamp>\d{4}-\d{2}-\d{2}[^\]]+)\]/,
+  /^\s*(?<timestamp>\d{2}:\d{2}:\d{2}(?:\.\d+)?)/,
+];
+
+const sourcePatterns = [
+  /\[(?<source>[A-Za-z][A-Za-z0-9_.:-]{1,48})\]/,
+  /\bsource=(?<source>[A-Za-z0-9_.:-]+)/i,
+  /\bmodule=(?<source>[A-Za-z0-9_.:-]+)/i,
+];
+
+export const buildLogEntries = (
+  content: string,
+  searchQuery: string,
+  filePath: string,
+): LogEntry[] => {
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
   const hasSearchQuery = normalizedQuery.length > 0;
   const rawLines = content.length > 0 ? content.split(/\r?\n/) : [];
 
-  return rawLines.map((text, index) => {
-    const matchesSearch = hasSearchQuery && text.toLocaleLowerCase().includes(normalizedQuery);
+  return rawLines.map((raw, index) => {
+    const lineNumber = index + 1;
+    const severity = detectSeverity(raw);
+    const timestamp = extractTimestamp(raw);
+    const source = extractSource(raw, severity);
+    const message = extractMessage(raw, timestamp);
+    const matchesSearch = hasSearchQuery && raw.toLocaleLowerCase().includes(normalizedQuery);
 
     return {
-      lineNumber: index + 1,
-      text,
-      severity: detectSeverity(text),
+      id: `${filePath}:${lineNumber}:${hashLine(raw)}`,
+      timestamp,
+      severity,
+      source,
+      message,
+      raw,
+      filePath,
+      lineNumber,
       matchesSearch,
     };
   });
 };
 
-export const filterLogLines = (
-  lines: ParsedLogLine[],
+export const filterLogEntries = (
+  entries: LogEntry[],
   searchQuery: string,
   filterToMatches: boolean,
   severityFilters: Record<LogSeverity, boolean>,
-): ParsedLogLine[] => {
+): LogEntry[] => {
   const hasSearchQuery = searchQuery.trim().length > 0;
 
-  return lines.filter((line) => {
-    if (!severityFilters[line.severity]) {
+  return entries.filter((entry) => {
+    if (!severityFilters[entry.severity]) {
       return false;
     }
 
-    return !filterToMatches || !hasSearchQuery || line.matchesSearch;
+    return !filterToMatches || !hasSearchQuery || entry.matchesSearch;
   });
 };
 
-export const getVisibleLogText = (lines: ParsedLogLine[]): string => {
-  return lines.map((line) => line.text).join('\n');
+export const getVisibleLogText = (entries: LogEntry[]): string => {
+  return entries.map((entry) => entry.raw).join('\n');
 };
 
 export const getLogSeverityStats = (
-  allLines: ParsedLogLine[],
-  visibleLines: ParsedLogLine[],
+  allEntries: LogEntry[],
+  visibleEntries: LogEntry[],
 ): LogSeverityStats => {
   const stats: LogSeverityStats = {
-    total: allLines.length,
-    visible: visibleLines.length,
-    matched: allLines.filter((line) => line.matchesSearch).length,
+    total: allEntries.length,
+    visible: visibleEntries.length,
+    matched: allEntries.filter((entry) => entry.matchesSearch).length,
     error: 0,
     warn: 0,
     info: 0,
@@ -83,8 +114,8 @@ export const getLogSeverityStats = (
     neutral: 0,
   };
 
-  for (const line of allLines) {
-    stats[line.severity] += 1;
+  for (const entry of allEntries) {
+    stats[entry.severity] += 1;
   }
 
   return stats;
@@ -129,4 +160,51 @@ const detectSeverity = (line: string): LogSeverity => {
   }
 
   return 'neutral';
+};
+
+const extractTimestamp = (line: string): string | null => {
+  for (const pattern of timestampPatterns) {
+    const match = pattern.exec(line);
+    const timestamp = match?.groups?.['timestamp'];
+
+    if (timestamp) {
+      return timestamp;
+    }
+  }
+
+  return null;
+};
+
+const extractSource = (line: string, severity: LogSeverity): string | null => {
+  for (const pattern of sourcePatterns) {
+    const match = pattern.exec(line);
+    const source = match?.groups?.['source'];
+
+    if (source && source.toLocaleLowerCase() !== severity) {
+      return source;
+    }
+  }
+
+  return null;
+};
+
+const extractMessage = (line: string, timestamp: string | null): string => {
+  if (!timestamp) {
+    return line.trim();
+  }
+
+  return line
+    .replace(timestamp, '')
+    .replace(/^\s*[\][\-:|]+/, '')
+    .trim();
+};
+
+const hashLine = (line: string): string => {
+  let hash = 0;
+
+  for (let index = 0; index < line.length; index += 1) {
+    hash = (hash * 31 + line.charCodeAt(index)) >>> 0;
+  }
+
+  return hash.toString(36);
 };

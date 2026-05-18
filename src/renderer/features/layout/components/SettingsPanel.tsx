@@ -12,6 +12,7 @@ import {
 
 import { Badge } from '@renderer/components/ui/Badge';
 import { Button } from '@renderer/components/ui/Button';
+import { SHORTCUTS } from '@renderer/features/shortcuts/shortcutDefinitions';
 import { useFileMonitorStore, type ThemeMode } from '@renderer/stores/fileMonitorStore';
 
 import type { ReactNode } from 'react';
@@ -152,6 +153,25 @@ export const SettingsPanel = (): JSX.Element | null => {
             <Button variant="ghost" className="w-full justify-start" onClick={resetLogFilters}>
               Reset search and severity filters
             </Button>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Keyboard Shortcuts"
+            description="Desktop-style shortcuts for common monitoring workflows."
+          >
+            <div className="grid gap-2">
+              {SHORTCUTS.map((shortcut) => (
+                <div
+                  key={shortcut.action}
+                  className="flex items-center justify-between rounded-lg border border-line bg-ink-900 px-3 py-2"
+                >
+                  <span className="text-sm text-readable">{shortcut.label}</span>
+                  <kbd className="rounded border border-line bg-ink-950 px-2 py-1 font-mono text-[11px] text-muted">
+                    {shortcut.keys}
+                  </kbd>
+                </div>
+              ))}
+            </div>
           </SettingsSection>
         </div>
       </aside>

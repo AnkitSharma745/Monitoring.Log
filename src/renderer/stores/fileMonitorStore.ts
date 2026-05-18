@@ -48,6 +48,15 @@ interface ViewerPreferences {
 
 export type ThemeMode = 'light' | 'dark';
 
+export interface OpenLogTab {
+  filePath: string;
+  pinned: boolean;
+  unreadCount: number;
+  openedAt: string;
+  lastViewedAt: string;
+  scrollTop: number;
+}
+
 interface FileMonitorState {
   directories: DirectoryScanResult[];
   filesByPath: Record<string, LogFileMetadata>;
@@ -55,7 +64,9 @@ interface FileMonitorState {
   scanIssues: PathScanIssue[];
   documentsByPath: Record<string, LoadedFileDocument>;
   watchingFiles: Record<string, WatchingFileState>;
+  openTabs: OpenLogTab[];
   searchQuery: string;
+  activeSearchMatchIndex: number;
   preferences: ViewerPreferences;
   themeMode: ThemeMode;
   isSettingsOpen: boolean;
@@ -78,8 +89,11 @@ interface FileMonitorState {
   applyWatchError: (event: FileWatchErrorEvent) => void;
   clearActiveView: () => void;
   copyTextToClipboard: (text: string) => Promise<void>;
+  exportTextToFile: (text: string, fileName: string) => void;
   reloadApplicationWindow: () => Promise<void>;
   setSearchQuery: (query: string) => void;
+  selectNextSearchMatch: () => void;
+  selectPreviousSearchMatch: () => void;
   setThemeMode: (themeMode: ThemeMode) => void;
   toggleSettingsPanel: () => void;
   closeSettingsPanel: () => void;
@@ -92,6 +106,10 @@ interface FileMonitorState {
   toggleFilterToMatches: () => void;
   toggleSeverityFilter: (severity: LogSeverity) => void;
   resetLogFilters: () => void;
+  closeTab: (filePath: string) => void;
+  pinTab: (filePath: string) => void;
+  setTabScrollPosition: (filePath: string, scrollTop: number) => void;
+  restoreWorkspace: () => void;
 }
 
 type FileMonitorSet = (
@@ -100,6 +118,20 @@ type FileMonitorSet = (
 ) => void;
 
 type FileMonitorGet = () => FileMonitorState;
+
+interface PersistedWorkspaceState {
+  selectedFilePath: string | null;
+  openTabs: OpenLogTab[];
+  watchedFilePaths: string[];
+  themeMode: ThemeMode;
+  isSidebarVisible: boolean;
+  isExplorerVisible: boolean;
+  isLogViewerExpanded: boolean;
+  searchQuery: string;
+  preferences: ViewerPreferences;
+}
+
+const WORKSPACE_STORAGE_KEY = 'monitoring-log.workspace.v1';
 
 const createEnabledSeverityFilters = (): Record<LogSeverity, boolean> => {
   return {
@@ -118,7 +150,9 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   scanIssues: [],
   documentsByPath: {},
   watchingFiles: {},
+  openTabs: [],
   searchQuery: '',
+  activeSearchMatchIndex: 0,
   preferences: {
     autoScroll: true,
     lineWrap: true,
@@ -219,7 +253,16 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   },
 
   selectFile: async (filePath: string): Promise<void> => {
-    set({ selectedFilePath: filePath, errorMessage: null });
+    set((state) => ({
+      selectedFilePath: filePath,
+      errorMessage: null,
+      activeSearchMatchIndex: 0,
+      openTabs: upsertOpenTab(state.openTabs, filePath).map((tab) =>
+        tab.filePath === filePath
+          ? { ...tab, unreadCount: 0, lastViewedAt: new Date().toISOString() }
+          : tab,
+      ),
+    }));
 
     if (!get().documentsByPath[filePath]) {
       await get().loadFile(filePath);
@@ -241,6 +284,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
           ...state.filesByPath,
           [result.file.path]: result.file,
         },
+        openTabs: upsertOpenTab(state.openTabs, result.file.path),
         documentsByPath: {
           ...state.documentsByPath,
           [filePath]: {
@@ -393,6 +437,17 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
               },
             }
           : state.watchingFiles,
+        openTabs: state.openTabs.map((tab) =>
+          tab.filePath === event.filePath
+            ? {
+                ...tab,
+                unreadCount:
+                  state.selectedFilePath === event.filePath
+                    ? 0
+                    : tab.unreadCount + Math.max(1, event.content.split(/\r?\n/).length - 1),
+              }
+            : tab,
+        ),
         lastUpdate: {
           filePath: event.filePath,
           bytesRead: event.bytesRead,
@@ -457,13 +512,45 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
     }
   },
 
+  exportTextToFile: (text: string, fileName: string): void => {
+    if (text.length === 0) {
+      set({ statusMessage: 'There is no visible log content to export.' });
+      return;
+    }
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+    set({ statusMessage: 'Exported visible logs.' });
+    logRendererInfo('Renderer exported visible log content.', {
+      fileName,
+      characterCount: text.length,
+    });
+  },
+
   reloadApplicationWindow: async (): Promise<void> => {
     logRendererInfo('Renderer requested window reload from settings.');
     await window.desktop.app.reloadWindow();
   },
 
   setSearchQuery: (query: string): void => {
-    set({ searchQuery: query });
+    set({ searchQuery: query, activeSearchMatchIndex: 0 });
+  },
+
+  selectNextSearchMatch: (): void => {
+    set((state) => ({
+      activeSearchMatchIndex: state.activeSearchMatchIndex + 1,
+    }));
+  },
+
+  selectPreviousSearchMatch: (): void => {
+    set((state) => ({
+      activeSearchMatchIndex: Math.max(0, state.activeSearchMatchIndex - 1),
+    }));
   },
 
   setThemeMode: (themeMode: ThemeMode): void => {
@@ -486,6 +573,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
       isSidebarVisible: !state.isSidebarVisible,
       statusMessage: state.isSidebarVisible ? 'Sidebar hidden.' : 'Sidebar shown.',
     }));
+    logRendererInfo('Renderer toggled sidebar visibility.');
   },
 
   toggleExplorerVisibility: (): void => {
@@ -493,6 +581,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
       isExplorerVisible: !state.isExplorerVisible,
       statusMessage: state.isExplorerVisible ? 'File explorer hidden.' : 'File explorer shown.',
     }));
+    logRendererInfo('Renderer toggled file explorer visibility.');
   },
 
   toggleLogViewerExpanded: (): void => {
@@ -503,6 +592,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
         ? 'Exited focused log view.'
         : 'Entered focused log view.',
     }));
+    logRendererInfo('Renderer toggled focused log view.');
   },
 
   toggleAutoScroll: (): void => {
@@ -556,6 +646,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   resetLogFilters: (): void => {
     set((state) => ({
       searchQuery: '',
+      activeSearchMatchIndex: 0,
       preferences: {
         ...state.preferences,
         filterToMatches: false,
@@ -563,6 +654,80 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
       },
       statusMessage: 'Log filters reset.',
     }));
+  },
+
+  closeTab: (filePath: string): void => {
+    const tab = get().openTabs.find((item) => item.filePath === filePath);
+
+    if (tab?.pinned) {
+      set({ statusMessage: 'Pinned tabs stay open until unpinned.' });
+      return;
+    }
+
+    set((state) => {
+      const nextTabs = state.openTabs.filter((item) => item.filePath !== filePath);
+      const selectedFilePath =
+        state.selectedFilePath === filePath
+          ? (nextTabs.at(-1)?.filePath ?? null)
+          : state.selectedFilePath;
+
+      return {
+        openTabs: nextTabs,
+        selectedFilePath,
+        statusMessage: 'Closed log tab.',
+      };
+    });
+    logRendererInfo('Renderer closed log tab.', { filePath });
+  },
+
+  pinTab: (filePath: string): void => {
+    set((state) => ({
+      openTabs: state.openTabs.map((tab) =>
+        tab.filePath === filePath ? { ...tab, pinned: !tab.pinned } : tab,
+      ),
+    }));
+    logRendererInfo('Renderer toggled log tab pin.', { filePath });
+  },
+
+  setTabScrollPosition: (filePath: string, scrollTop: number): void => {
+    set((state) => ({
+      openTabs: state.openTabs.map((tab) =>
+        tab.filePath === filePath ? { ...tab, scrollTop } : tab,
+      ),
+    }));
+  },
+
+  restoreWorkspace: (): void => {
+    const persistedWorkspace = readPersistedWorkspace();
+
+    if (!persistedWorkspace) {
+      return;
+    }
+
+    set({
+      selectedFilePath: persistedWorkspace.selectedFilePath,
+      openTabs: persistedWorkspace.openTabs,
+      themeMode: persistedWorkspace.themeMode,
+      isSidebarVisible: persistedWorkspace.isSidebarVisible,
+      isExplorerVisible: persistedWorkspace.isExplorerVisible,
+      isLogViewerExpanded: persistedWorkspace.isLogViewerExpanded,
+      searchQuery: persistedWorkspace.searchQuery,
+      preferences: persistedWorkspace.preferences,
+      statusMessage: 'Workspace restored.',
+    });
+
+    for (const filePath of persistedWorkspace.watchedFilePaths) {
+      void get().startWatching(filePath);
+    }
+
+    if (persistedWorkspace.selectedFilePath) {
+      void get().loadFile(persistedWorkspace.selectedFilePath);
+    }
+
+    logRendererInfo('Renderer restored workspace.', {
+      tabCount: persistedWorkspace.openTabs.length,
+      watcherCount: persistedWorkspace.watchedFilePaths.length,
+    });
   },
 }));
 
@@ -577,13 +742,16 @@ const registerFiles = (
 
   set((state) => {
     const filesByPath = { ...state.filesByPath };
+    let openTabs = state.openTabs;
 
     for (const file of incomingFiles) {
       filesByPath[file.path] = file;
+      openTabs = upsertOpenTab(openTabs, file.path);
     }
 
     return {
       filesByPath,
+      openTabs,
       selectedFilePath: state.selectedFilePath ?? incomingFiles[0]?.path ?? null,
     };
   });
@@ -593,6 +761,24 @@ const registerFiles = (
   if (selectedFilePath && !get().documentsByPath[selectedFilePath]) {
     void get().loadFile(selectedFilePath);
   }
+};
+
+const upsertOpenTab = (tabs: OpenLogTab[], filePath: string): OpenLogTab[] => {
+  if (tabs.some((tab) => tab.filePath === filePath)) {
+    return tabs;
+  }
+
+  return [
+    ...tabs,
+    {
+      filePath,
+      pinned: false,
+      unreadCount: 0,
+      openedAt: new Date().toISOString(),
+      lastViewedAt: new Date().toISOString(),
+      scrollTop: 0,
+    },
+  ];
 };
 
 const registerDirectories = (
@@ -670,3 +856,51 @@ const trimContent = (content: string): { content: string; wasTrimmed: boolean } 
 const logRendererInfo = (message: string, data?: Record<string, unknown>): void => {
   window.desktop.logging.log('info', message, 'file-monitor-store.ts', data);
 };
+
+const readPersistedWorkspace = (): PersistedWorkspaceState | null => {
+  try {
+    const rawValue = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    return JSON.parse(rawValue) as PersistedWorkspaceState;
+  } catch (error) {
+    window.desktop.logging.log(
+      'warn',
+      'Failed to restore persisted workspace.',
+      'file-monitor-store.ts',
+      {
+        error: error instanceof Error ? error.message : 'Unknown restore error.',
+      },
+    );
+    return null;
+  }
+};
+
+const writePersistedWorkspace = (state: FileMonitorState): void => {
+  const workspaceState: PersistedWorkspaceState = {
+    selectedFilePath: state.selectedFilePath,
+    openTabs: state.openTabs,
+    watchedFilePaths: Object.keys(state.watchingFiles),
+    themeMode: state.themeMode,
+    isSidebarVisible: state.isSidebarVisible,
+    isExplorerVisible: state.isExplorerVisible,
+    isLogViewerExpanded: state.isLogViewerExpanded,
+    searchQuery: state.searchQuery,
+    preferences: state.preferences,
+  };
+
+  try {
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspaceState));
+  } catch (error) {
+    window.desktop.logging.log('warn', 'Failed to persist workspace.', 'file-monitor-store.ts', {
+      error: error instanceof Error ? error.message : 'Unknown persist error.',
+    });
+  }
+};
+
+useFileMonitorStore.subscribe((state) => {
+  writePersistedWorkspace(state);
+});

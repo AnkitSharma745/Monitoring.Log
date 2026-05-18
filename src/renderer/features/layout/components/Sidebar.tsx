@@ -6,6 +6,8 @@ import { Button } from '@renderer/components/ui/Button';
 import { formatBytes, formatShortTime } from '@renderer/features/files/fileFormatting';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 
+import type { LogFileMetadata } from '@shared/contracts/files';
+
 export const Sidebar = (): JSX.Element => {
   const [isDragging, setIsDragging] = useState(false);
   const filesByPath = useFileMonitorStore((state) => state.filesByPath);
@@ -166,39 +168,14 @@ export const Sidebar = (): JSX.Element => {
         ) : (
           <div className="space-y-2">
             {watchedEntries.map((file) => (
-              <button
+              <WatchedFileCard
                 key={file.path}
-                type="button"
-                className={[
-                  'w-full rounded-lg border p-3 text-left transition',
-                  selectedFilePath === file.path
-                    ? 'border-accent/60 bg-accent-soft'
-                    : 'border-line bg-ink-950/50 hover:border-line-strong hover:bg-ink-800',
-                ].join(' ')}
-                onClick={() => {
-                  void selectFile(file.path);
-                }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate text-sm font-medium text-readable">
-                    {file.name}
-                  </span>
-                  <span className="h-2 w-2 rounded-full bg-success shadow-[0_0_12px_rgb(66_211_146/0.7)]" />
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-subtle">
-                  <span>{formatBytes(file.sizeBytes)}</span>
-                  <button
-                    type="button"
-                    className="rounded border border-danger/40 px-1.5 py-0.5 text-danger hover:bg-danger-soft"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void stopWatching(file.path);
-                    }}
-                  >
-                    Stop
-                  </button>
-                </div>
-              </button>
+                file={file}
+                isSelected={selectedFilePath === file.path}
+                startedAt={watchingFiles[file.path]?.startedAt ?? null}
+                onSelect={selectFile}
+                onStop={stopWatching}
+              />
             ))}
           </div>
         )}
@@ -238,5 +215,64 @@ const Metric = ({ label, value, tone = 'neutral' }: MetricProps): JSX.Element =>
       <div className={tone === 'success' ? 'text-success' : 'text-readable'}>{value}</div>
       <div className="text-[11px] uppercase text-subtle">{label}</div>
     </div>
+  );
+};
+
+interface WatchedFileCardProps {
+  file: LogFileMetadata;
+  isSelected: boolean;
+  startedAt: string | null;
+  onSelect: (filePath: string) => Promise<void>;
+  onStop: (filePath: string) => Promise<void>;
+}
+
+const WatchedFileCard = ({
+  file,
+  isSelected,
+  startedAt,
+  onSelect,
+  onStop,
+}: WatchedFileCardProps): JSX.Element => {
+  return (
+    <button
+      type="button"
+      className={[
+        'w-full rounded-lg border p-3 text-left transition',
+        isSelected
+          ? 'border-accent/60 bg-accent-soft'
+          : 'border-line bg-ink-950/50 hover:border-line-strong hover:bg-ink-800',
+      ].join(' ')}
+      onClick={() => {
+        void onSelect(file.path);
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-sm font-medium text-readable">{file.name}</span>
+        <span className="h-2 w-2 rounded-full bg-success shadow-[0_0_12px_rgb(66_211_146/0.7)]" />
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-subtle">
+        <span>
+          {formatBytes(file.sizeBytes)}
+          {startedAt ? ` | since ${formatShortTime(startedAt)}` : ''}
+        </span>
+        <span
+          role="button"
+          tabIndex={0}
+          className="rounded border border-danger/40 px-1.5 py-0.5 text-danger hover:bg-danger-soft"
+          onClick={(event) => {
+            event.stopPropagation();
+            void onStop(file.path);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.stopPropagation();
+              void onStop(file.path);
+            }
+          }}
+        >
+          Stop
+        </span>
+      </div>
+    </button>
   );
 };

@@ -1,10 +1,17 @@
 import { useEffect, type JSX } from 'react';
 
 import { AppLayout } from '@renderer/features/layout/components/AppLayout';
+import { useKeyboardShortcuts } from '@renderer/features/shortcuts/useKeyboardShortcuts';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 
 function App(): JSX.Element {
   const themeMode = useFileMonitorStore((state) => state.themeMode);
+  const restoreWorkspace = useFileMonitorStore((state) => state.restoreWorkspace);
+  useKeyboardShortcuts();
+
+  useEffect(() => {
+    restoreWorkspace();
+  }, [restoreWorkspace]);
 
   useEffect(() => {
     const root = document.documentElement;

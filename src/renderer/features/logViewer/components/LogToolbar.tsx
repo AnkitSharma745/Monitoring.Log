@@ -9,12 +9,15 @@ import {
   Search,
   Settings,
   Square,
+  Download,
   Trash2,
   WrapText,
   Play,
 } from 'lucide-react';
 
 import { Button } from '@renderer/components/ui/Button';
+import { Tooltip } from '@renderer/components/ui/Tooltip';
+import { getShortcutLabel } from '@renderer/features/shortcuts/shortcutDefinitions';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 
 import type { LogSeverity, LogSeverityStats } from '../logParsing';
@@ -25,6 +28,7 @@ interface LogToolbarProps {
   isBusy: boolean;
   activeFilePath: string | null;
   stats: LogSeverityStats;
+  matchCount: number;
 }
 
 const severityLabels: Array<{ severity: LogSeverity; label: string }> = [
@@ -40,6 +44,7 @@ export const LogToolbar = ({
   isBusy,
   activeFilePath,
   stats,
+  matchCount,
 }: LogToolbarProps): JSX.Element => {
   const searchQuery = useFileMonitorStore((state) => state.searchQuery);
   const preferences = useFileMonitorStore((state) => state.preferences);
@@ -50,6 +55,9 @@ export const LogToolbar = ({
   const watchingFiles = useFileMonitorStore((state) => state.watchingFiles);
   const clearActiveView = useFileMonitorStore((state) => state.clearActiveView);
   const copyTextToClipboard = useFileMonitorStore((state) => state.copyTextToClipboard);
+  const exportTextToFile = useFileMonitorStore((state) => state.exportTextToFile);
+  const selectNextSearchMatch = useFileMonitorStore((state) => state.selectNextSearchMatch);
+  const selectPreviousSearchMatch = useFileMonitorStore((state) => state.selectPreviousSearchMatch);
   const toggleAutoScroll = useFileMonitorStore((state) => state.toggleAutoScroll);
   const toggleLineWrap = useFileMonitorStore((state) => state.toggleLineWrap);
   const toggleLineNumbers = useFileMonitorStore((state) => state.toggleLineNumbers);
@@ -74,6 +82,7 @@ export const LogToolbar = ({
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle"
           />
           <input
+            id="log-search-input"
             value={searchQuery}
             onChange={(event) => {
               setSearchQuery(event.target.value);
@@ -82,18 +91,41 @@ export const LogToolbar = ({
             className="h-9 w-full rounded-md border border-line bg-ink-950 px-9 text-sm text-readable outline-none transition placeholder:text-subtle focus:border-accent"
           />
         </div>
+        <div className="flex h-9 items-center rounded-md border border-line bg-ink-950 px-2 text-xs text-muted">
+          {matchCount} match(es)
+          <button
+            type="button"
+            className="ml-2 rounded px-1 text-readable hover:bg-ink-800"
+            onClick={selectPreviousSearchMatch}
+            disabled={matchCount === 0}
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className="rounded px-1 text-readable hover:bg-ink-800"
+            onClick={selectNextSearchMatch}
+            disabled={matchCount === 0}
+          >
+            Next
+          </button>
+        </div>
 
-        <Button
-          size="sm"
-          variant={preferences.filterToMatches ? 'primary' : 'secondary'}
-          onClick={toggleFilterToMatches}
-        >
-          Matches
-        </Button>
-        <Button size="sm" variant="ghost" onClick={resetLogFilters}>
-          <RotateCcw size={14} />
-          Reset
-        </Button>
+        <Tooltip label="Show matching rows only">
+          <Button
+            size="sm"
+            variant={preferences.filterToMatches ? 'primary' : 'secondary'}
+            onClick={toggleFilterToMatches}
+          >
+            Matches
+          </Button>
+        </Tooltip>
+        <Tooltip label="Reset search and filters">
+          <Button size="sm" variant="ghost" onClick={resetLogFilters}>
+            <RotateCcw size={14} />
+            Reset
+          </Button>
+        </Tooltip>
         <Button
           size="sm"
           variant={preferences.autoScroll ? 'success' : 'secondary'}
@@ -133,57 +165,78 @@ export const LogToolbar = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => {
-              if (activeFilePath) {
-                void loadFile(activeFilePath);
-              }
-            }}
-            disabled={!activeFilePath || isBusy}
-          >
-            <RefreshCw size={14} />
-            Reload
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              void copyTextToClipboard(visibleText);
-            }}
-          >
-            <Copy size={14} />
-            Copy
-          </Button>
-          <Button size="sm" variant="ghost" onClick={clearActiveView} disabled={!activeFilePath}>
-            <Trash2 size={14} />
-            Clear
-          </Button>
-          <Button
-            size="sm"
-            variant={isWatching ? 'danger' : 'primary'}
-            onClick={() => {
-              if (!activeFilePath) {
-                return;
-              }
+          <Tooltip label="Reload active file" shortcut={getShortcutLabel('reloadActive')}>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (activeFilePath) {
+                  void loadFile(activeFilePath);
+                }
+              }}
+              disabled={!activeFilePath || isBusy}
+            >
+              <RefreshCw size={14} />
+              Reload
+            </Button>
+          </Tooltip>
+          <Tooltip label="Copy filtered logs">
+            <Button
+              size="sm"
+              onClick={() => {
+                void copyTextToClipboard(visibleText);
+              }}
+            >
+              <Copy size={14} />
+              Copy
+            </Button>
+          </Tooltip>
+          <Tooltip label="Export filtered logs">
+            <Button
+              size="sm"
+              onClick={() => {
+                exportTextToFile(visibleText, 'filtered-logs.txt');
+              }}
+            >
+              <Download size={14} />
+              Export
+            </Button>
+          </Tooltip>
+          <Tooltip label="Clear active log view" shortcut={getShortcutLabel('clearLogs')}>
+            <Button size="sm" variant="ghost" onClick={clearActiveView} disabled={!activeFilePath}>
+              <Trash2 size={14} />
+              Clear
+            </Button>
+          </Tooltip>
+          <Tooltip label={isWatching ? 'Stop watcher' : 'Start watcher'}>
+            <Button
+              size="sm"
+              variant={isWatching ? 'danger' : 'primary'}
+              onClick={() => {
+                if (!activeFilePath) {
+                  return;
+                }
 
-              if (isWatching) {
-                void stopWatching(activeFilePath);
-              } else {
-                void startWatching(activeFilePath);
-              }
-            }}
-            disabled={!activeFilePath || isBusy}
-          >
-            {isWatching ? <Square size={14} /> : <Play size={14} />}
-            {isWatching ? 'Stop' : 'Watch'}
-          </Button>
-          <Button
-            size="sm"
-            variant={isSidebarVisible ? 'secondary' : 'ghost'}
-            onClick={toggleSidebarVisibility}
-          >
-            <PanelLeft size={14} />
-          </Button>
+                if (isWatching) {
+                  void stopWatching(activeFilePath);
+                } else {
+                  void startWatching(activeFilePath);
+                }
+              }}
+              disabled={!activeFilePath || isBusy}
+            >
+              {isWatching ? <Square size={14} /> : <Play size={14} />}
+              {isWatching ? 'Stop' : 'Watch'}
+            </Button>
+          </Tooltip>
+          <Tooltip label="Toggle sidebar" shortcut={getShortcutLabel('toggleSidebar')}>
+            <Button
+              size="sm"
+              variant={isSidebarVisible ? 'secondary' : 'ghost'}
+              onClick={toggleSidebarVisibility}
+            >
+              <PanelLeft size={14} />
+            </Button>
+          </Tooltip>
           <Button
             size="sm"
             variant={isExplorerVisible ? 'secondary' : 'ghost'}
@@ -195,9 +248,11 @@ export const LogToolbar = ({
             {isLogViewerExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             {isLogViewerExpanded ? 'Exit Focus' : 'Focus'}
           </Button>
-          <Button size="sm" variant="secondary" onClick={toggleSettingsPanel}>
-            <Settings size={14} />
-          </Button>
+          <Tooltip label="Settings" shortcut={getShortcutLabel('toggleSettings')}>
+            <Button size="sm" variant="secondary" onClick={toggleSettingsPanel}>
+              <Settings size={14} />
+            </Button>
+          </Tooltip>
         </div>
       </div>
     </div>

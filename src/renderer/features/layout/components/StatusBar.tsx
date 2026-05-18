@@ -8,6 +8,7 @@ export const StatusBar = (): JSX.Element => {
   const filesByPath = useFileMonitorStore((state) => state.filesByPath);
   const selectedFilePath = useFileMonitorStore((state) => state.selectedFilePath);
   const watchingFiles = useFileMonitorStore((state) => state.watchingFiles);
+  const openTabs = useFileMonitorStore((state) => state.openTabs);
   const statusMessage = useFileMonitorStore((state) => state.statusMessage);
   const errorMessage = useFileMonitorStore((state) => state.errorMessage);
   const lastUpdate = useFileMonitorStore((state) => state.lastUpdate);
@@ -23,6 +24,7 @@ export const StatusBar = (): JSX.Element => {
         <Badge tone={Object.keys(watchingFiles).length > 0 ? 'success' : 'neutral'}>
           {Object.keys(watchingFiles).length} watcher(s)
         </Badge>
+        <Badge>{openTabs.length} tab(s)</Badge>
         {selectedFile && <span className="truncate">Selected: {selectedFile.name}</span>}
         {selectedFile && <span>{formatBytes(selectedFile.sizeBytes)}</span>}
       </div>
