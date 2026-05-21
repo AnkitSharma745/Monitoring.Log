@@ -5,7 +5,9 @@
     "src/renderer/**/*",
     "src/renderer/**/*.tsx",
     "src/preload/*.d.ts",
-    "src/shared/**/*"
+    "src/shared/**/*",
+    "src/core/**/*",
+    "src/workers/**/*"
   ],
   "compilerOptions": {
     "composite": true,
@@ -19,8 +21,10 @@
     "baseUrl": ".",
     "moduleResolution": "bundler",
     "paths": {
-      "@renderer/*": ["src/renderer/*"],
-      "@shared/*": ["src/shared/*"]
+      "@renderer/*": ["./src/renderer/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@core/*": ["./src/core/*"],
+      "@workers/*": ["./src/workers/*"]
     }
   }
 }

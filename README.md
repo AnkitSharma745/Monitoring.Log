@@ -16,6 +16,7 @@ A robust, production-ready Electron application template built with [electron-vi
 ## 📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
+
 - **Node.js** (v18 or higher recommended)
 - **npm** or **pnpm** (both are supported, but `pnpm` is highly recommended for faster dependency resolution)
 
@@ -24,12 +25,14 @@ Before you begin, ensure you have the following installed:
 ## 🛠️ Installation & Setup
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/ankitsharma745/Monitoring.Log.git
    cd Monitoring.Log
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    # or
@@ -46,17 +49,15 @@ Before you begin, ensure you have the following installed:
 
 ## 💻 Available Commands
 
-| Command | Description |
-| :--- | :--- |
-| `npm run dev` | Starts the app in development mode with live reloading and HMR. |
-| `npm run build` | Compiles the TypeScript code and builds the app for production. |
-| `npm run start` | Previews the built production application locally. |
-| `npm run lint` | Runs ESLint across the codebase to catch potential errors. |
-| `npm run format` | Runs Prettier to format all supported files automatically. |
+| Command             | Description                                                               |
+| :------------------ | :------------------------------------------------------------------------ |
+| `npm run dev`       | Starts the app in development mode with live reloading and HMR.           |
+| `npm run build`     | Compiles the TypeScript code and builds the app for production.           |
+| `npm run start`     | Previews the built production application locally.                        |
+| `npm run lint`      | Runs ESLint across the codebase to catch potential errors.                |
+| `npm run format`    | Runs Prettier to format all supported files automatically.                |
 | `npm run typecheck` | Validates TypeScript definitions for both Node (main) and Web (renderer). |
-| `npm run build:win` | Builds the standalone executable application for Windows. |
-| `npm run build:mac` | Builds the standalone application for macOS. |
-| `npm run build:linux` | Builds the standalone application for Linux. |
+| `npm run build:win` | Builds the standalone executable application for Windows.                 |
 
 ---
 

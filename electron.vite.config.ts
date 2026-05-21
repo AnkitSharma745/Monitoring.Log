@@ -14,6 +14,7 @@ export default defineConfig({
       alias: {
         '@main': resolve(__dirname, 'src/main'),
         '@shared': resolve(__dirname, 'src/shared'),
+        '@core': resolve(__dirname, 'src/core'),
       },
     },
   },
@@ -30,6 +31,8 @@ export default defineConfig({
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer'),
         '@shared': resolve(__dirname, 'src/shared'),
+        '@core': resolve(__dirname, 'src/core'),
+        '@workers': resolve(__dirname, 'src/workers'),
       },
     },
     plugins: [react()],
