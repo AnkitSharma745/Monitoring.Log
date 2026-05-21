@@ -54,6 +54,8 @@ export interface PathScanResult {
 export interface ReadFileRequest {
   filePath: string;
   maxBytes?: number;
+  startOffset?: number;
+  endOffset?: number;
 }
 
 export interface FileContentResult {
