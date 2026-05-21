@@ -1,302 +1,205 @@
-import {
-  Copy,
-  FolderTree,
-  Maximize2,
-  Minimize2,
-  PanelLeft,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Settings,
-  Square,
-  Download,
-  Trash2,
-  WrapText,
-  Play,
-} from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Download, RotateCcw, Search, WrapText, X } from 'lucide-react';
+import { useEffect, useRef, type JSX } from 'react';
 
+import { Badge } from '@renderer/components/ui/Badge';
 import { Button } from '@renderer/components/ui/Button';
 import { Tooltip } from '@renderer/components/ui/Tooltip';
 import { getShortcutLabel } from '@renderer/features/shortcuts/shortcutDefinitions';
+import { getEngineWorkerClient } from '@renderer/services/workerClient';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 
-import type { LogSeverity, LogSeverityStats } from '../logParsing';
-import type { JSX } from 'react';
+import type { LogSeverityStats } from '../logParsing';
 
 interface LogToolbarProps {
-  visibleText: string;
   isBusy: boolean;
-  activeFilePath: string | null;
+  activeFilePath: string;
   stats: LogSeverityStats;
   matchCount: number;
 }
 
-const severityLabels: Array<{ severity: LogSeverity; label: string }> = [
-  { severity: 'error', label: 'Error' },
-  { severity: 'warn', label: 'Warn' },
-  { severity: 'info', label: 'Info' },
-  { severity: 'debug', label: 'Debug' },
-  { severity: 'neutral', label: 'Other' },
-];
-
 export const LogToolbar = ({
-  visibleText,
   isBusy,
   activeFilePath,
   stats,
   matchCount,
 }: LogToolbarProps): JSX.Element => {
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const searchQuery = useFileMonitorStore((state) => state.searchQuery);
   const preferences = useFileMonitorStore((state) => state.preferences);
   const setSearchQuery = useFileMonitorStore((state) => state.setSearchQuery);
-  const loadFile = useFileMonitorStore((state) => state.loadFile);
-  const startWatching = useFileMonitorStore((state) => state.startWatching);
-  const stopWatching = useFileMonitorStore((state) => state.stopWatching);
-  const watchingFiles = useFileMonitorStore((state) => state.watchingFiles);
-  const clearActiveView = useFileMonitorStore((state) => state.clearActiveView);
-  const copyTextToClipboard = useFileMonitorStore((state) => state.copyTextToClipboard);
-  const exportTextToFile = useFileMonitorStore((state) => state.exportTextToFile);
   const selectNextSearchMatch = useFileMonitorStore((state) => state.selectNextSearchMatch);
   const selectPreviousSearchMatch = useFileMonitorStore((state) => state.selectPreviousSearchMatch);
-  const toggleAutoScroll = useFileMonitorStore((state) => state.toggleAutoScroll);
-  const toggleLineWrap = useFileMonitorStore((state) => state.toggleLineWrap);
-  const toggleLineNumbers = useFileMonitorStore((state) => state.toggleLineNumbers);
   const toggleFilterToMatches = useFileMonitorStore((state) => state.toggleFilterToMatches);
-  const toggleSeverityFilter = useFileMonitorStore((state) => state.toggleSeverityFilter);
+  const toggleLineWrap = useFileMonitorStore((state) => state.toggleLineWrap);
   const resetLogFilters = useFileMonitorStore((state) => state.resetLogFilters);
-  const toggleSettingsPanel = useFileMonitorStore((state) => state.toggleSettingsPanel);
-  const toggleSidebarVisibility = useFileMonitorStore((state) => state.toggleSidebarVisibility);
-  const toggleExplorerVisibility = useFileMonitorStore((state) => state.toggleExplorerVisibility);
-  const toggleLogViewerExpanded = useFileMonitorStore((state) => state.toggleLogViewerExpanded);
-  const isLogViewerExpanded = useFileMonitorStore((state) => state.isLogViewerExpanded);
-  const isSidebarVisible = useFileMonitorStore((state) => state.isSidebarVisible);
-  const isExplorerVisible = useFileMonitorStore((state) => state.isExplorerVisible);
-  const isWatching = activeFilePath ? Boolean(watchingFiles[activeFilePath]) : false;
+  const copyTextToClipboard = useFileMonitorStore((state) => state.copyTextToClipboard);
+  const exportTextToFile = useFileMonitorStore((state) => state.exportTextToFile);
+  const loadFile = useFileMonitorStore((state) => state.loadFile);
+
+  const getVisibleText = async (): Promise<string> => {
+    const workerClient = getEngineWorkerClient();
+    try {
+      const res = await workerClient.request({
+        type: 'getVisibleWindow',
+        requestId: `visibleText:${activeFilePath}:${Date.now()}`,
+        sourceId: activeFilePath,
+        startRow: 0,
+        endRow: 1000000,
+        severityFilters: preferences.severityFilters,
+        searchQuery: searchQuery,
+        filterToMatches: preferences.filterToMatches,
+      });
+
+      if (res.type === 'getVisibleWindow:done') {
+        return res.window.entries.map((e) => e.raw).join('\n');
+      }
+    } catch (err) {
+      console.error('Failed to get visible text from worker:', err);
+    }
+    return '';
+  };
+
+  useEffect(() => {
+    const handleFocusSearch = (): void => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    };
+
+    window.addEventListener('monitoring-log:focus-search', handleFocusSearch);
+
+    return () => {
+      window.removeEventListener('monitoring-log:focus-search', handleFocusSearch);
+    };
+  }, []);
 
   return (
-    <div className="border-b border-line bg-ink-900/95 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-64 flex-1">
+    <div className="flex h-9 min-w-0 items-center justify-between gap-2 border-b border-line bg-ink-900 px-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <label className="relative min-w-[180px] max-w-xl flex-1">
           <Search
-            size={15}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle"
+            size={13}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-subtle"
           />
           <input
-            id="log-search-input"
+            ref={inputRef}
             value={searchQuery}
             onChange={(event) => {
               setSearchQuery(event.target.value);
             }}
-            placeholder="Search visible logs"
-            className="h-9 w-full rounded-md border border-line bg-ink-950 px-9 text-sm text-readable outline-none transition placeholder:text-subtle focus:border-accent"
+            placeholder="Search active log"
+            className="h-7 w-full rounded border border-line bg-ink-950 px-8 text-xs text-readable outline-none placeholder:text-subtle focus:border-accent"
           />
-        </div>
-        <div className="flex h-9 items-center rounded-md border border-line bg-ink-950 px-2 text-xs text-muted">
-          {matchCount} match(es)
-          <button
-            type="button"
-            className="ml-2 rounded px-1 text-readable hover:bg-ink-800"
-            onClick={selectPreviousSearchMatch}
-            disabled={matchCount === 0}
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            className="rounded px-1 text-readable hover:bg-ink-800"
-            onClick={selectNextSearchMatch}
-            disabled={matchCount === 0}
-          >
-            Next
-          </button>
-        </div>
+          {searchQuery && (
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-subtle hover:text-readable"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearchQuery('');
+              }}
+            >
+              <X size={13} />
+            </button>
+          )}
+        </label>
 
-        <Tooltip label="Show matching rows only">
+        <Tooltip label="Previous match" shortcut={getShortcutLabel('previousSearchMatch')}>
           <Button
             size="sm"
-            variant={preferences.filterToMatches ? 'primary' : 'secondary'}
-            onClick={toggleFilterToMatches}
+            variant="ghost"
+            className="h-7 px-1.5"
+            disabled={matchCount === 0}
+            onClick={selectPreviousSearchMatch}
           >
-            Matches
+            <ArrowUp size={13} />
           </Button>
         </Tooltip>
-        <Tooltip label="Reset search and filters">
-          <Button size="sm" variant="ghost" onClick={resetLogFilters}>
-            <RotateCcw size={14} />
-            Reset
+        <Tooltip label="Next match" shortcut={getShortcutLabel('nextSearchMatch')}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-1.5"
+            disabled={matchCount === 0}
+            onClick={selectNextSearchMatch}
+          >
+            <ArrowDown size={13} />
           </Button>
         </Tooltip>
-        <Button
-          size="sm"
-          variant={preferences.autoScroll ? 'success' : 'secondary'}
-          onClick={toggleAutoScroll}
-        >
-          Auto
-        </Button>
-        <Button
-          size="sm"
-          variant={preferences.lineWrap ? 'success' : 'secondary'}
-          onClick={toggleLineWrap}
-        >
-          <WrapText size={14} />
-          Wrap
-        </Button>
-        <Button
-          size="sm"
-          variant={preferences.showLineNumbers ? 'success' : 'secondary'}
-          onClick={toggleLineNumbers}
-        >
-          Lines
-        </Button>
+        <Badge tone={matchCount > 0 ? 'info' : 'neutral'} className="h-6">
+          {matchCount} match
+        </Badge>
+        <Badge tone={stats.error > 0 ? 'danger' : 'neutral'} className="h-6">
+          {stats.error} error
+        </Badge>
+        <Badge tone={stats.warn > 0 ? 'warning' : 'neutral'} className="h-6">
+          {stats.warn} warn
+        </Badge>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {severityLabels.map(({ severity, label }) => (
-            <SeverityFilterButton
-              key={severity}
-              label={label}
-              severity={severity}
-              count={stats[severity]}
-              isActive={preferences.severityFilters[severity]}
-              onToggle={toggleSeverityFilter}
-            />
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Tooltip label="Reload active file" shortcut={getShortcutLabel('reloadActive')}>
-            <Button
-              size="sm"
-              onClick={() => {
-                if (activeFilePath) {
-                  void loadFile(activeFilePath);
-                }
-              }}
-              disabled={!activeFilePath || isBusy}
-            >
-              <RefreshCw size={14} />
-              Reload
-            </Button>
-          </Tooltip>
-          <Tooltip label="Copy filtered logs">
-            <Button
-              size="sm"
-              onClick={() => {
-                void copyTextToClipboard(visibleText);
-              }}
-            >
-              <Copy size={14} />
-              Copy
-            </Button>
-          </Tooltip>
-          <Tooltip label="Export filtered logs">
-            <Button
-              size="sm"
-              onClick={() => {
-                exportTextToFile(visibleText, 'filtered-logs.txt');
-              }}
-            >
-              <Download size={14} />
-              Export
-            </Button>
-          </Tooltip>
-          <Tooltip label="Clear active log view" shortcut={getShortcutLabel('clearLogs')}>
-            <Button size="sm" variant="ghost" onClick={clearActiveView} disabled={!activeFilePath}>
-              <Trash2 size={14} />
-              Clear
-            </Button>
-          </Tooltip>
-          <Tooltip label={isWatching ? 'Stop watcher' : 'Start watcher'}>
-            <Button
-              size="sm"
-              variant={isWatching ? 'danger' : 'primary'}
-              onClick={() => {
-                if (!activeFilePath) {
-                  return;
-                }
-
-                if (isWatching) {
-                  void stopWatching(activeFilePath);
-                } else {
-                  void startWatching(activeFilePath);
-                }
-              }}
-              disabled={!activeFilePath || isBusy}
-            >
-              {isWatching ? <Square size={14} /> : <Play size={14} />}
-              {isWatching ? 'Stop' : 'Watch'}
-            </Button>
-          </Tooltip>
-          <Tooltip label="Toggle sidebar" shortcut={getShortcutLabel('toggleSidebar')}>
-            <Button
-              size="sm"
-              variant={isSidebarVisible ? 'secondary' : 'ghost'}
-              onClick={toggleSidebarVisibility}
-            >
-              <PanelLeft size={14} />
-            </Button>
-          </Tooltip>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          size="sm"
+          variant={preferences.filterToMatches ? 'secondary' : 'ghost'}
+          className="h-7"
+          onClick={toggleFilterToMatches}
+        >
+          Matches
+        </Button>
+        <Tooltip label="Toggle line wrap">
           <Button
             size="sm"
-            variant={isExplorerVisible ? 'secondary' : 'ghost'}
-            onClick={toggleExplorerVisibility}
+            variant={preferences.lineWrap ? 'secondary' : 'ghost'}
+            className="h-7 px-1.5"
+            onClick={toggleLineWrap}
           >
-            <FolderTree size={14} />
+            <WrapText size={13} />
           </Button>
-          <Button size="sm" variant="secondary" onClick={toggleLogViewerExpanded}>
-            {isLogViewerExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            {isLogViewerExpanded ? 'Exit Focus' : 'Focus'}
+        </Tooltip>
+        <Tooltip label="Reload active file" shortcut={getShortcutLabel('reloadActive')}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-1.5"
+            disabled={isBusy}
+            onClick={() => {
+              void loadFile(activeFilePath);
+            }}
+          >
+            <RotateCcw size={13} />
           </Button>
-          <Tooltip label="Settings" shortcut={getShortcutLabel('toggleSettings')}>
-            <Button size="sm" variant="secondary" onClick={toggleSettingsPanel}>
-              <Settings size={14} />
-            </Button>
-          </Tooltip>
-        </div>
+        </Tooltip>
+        <Tooltip label="Copy visible logs">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-1.5"
+            disabled={isBusy}
+            onClick={async () => {
+              const text = await getVisibleText();
+              void copyTextToClipboard(text);
+            }}
+          >
+            <Copy size={13} />
+          </Button>
+        </Tooltip>
+        <Tooltip label="Export visible logs">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-1.5"
+            disabled={isBusy}
+            onClick={async () => {
+              const text = await getVisibleText();
+              exportTextToFile(text, `${activeFilePath.split(/[\\/]/).at(-1) ?? 'log'}.txt`);
+            }}
+          >
+            <Download size={13} />
+          </Button>
+        </Tooltip>
+        <Button size="sm" variant="ghost" className="h-7" onClick={resetLogFilters}>
+          Reset
+        </Button>
       </div>
     </div>
-  );
-};
-
-interface SeverityFilterButtonProps {
-  label: string;
-  severity: LogSeverity;
-  count: number;
-  isActive: boolean;
-  onToggle: (severity: LogSeverity) => void;
-}
-
-const severityButtonClasses: Record<LogSeverity, string> = {
-  error: 'border-danger/50 text-danger',
-  warn: 'border-warning/50 text-warning',
-  info: 'border-info/50 text-info',
-  debug: 'border-line-strong text-muted',
-  neutral: 'border-line text-subtle',
-};
-
-const SeverityFilterButton = ({
-  label,
-  severity,
-  count,
-  isActive,
-  onToggle,
-}: SeverityFilterButtonProps): JSX.Element => {
-  return (
-    <button
-      type="button"
-      className={[
-        'inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] font-semibold transition',
-        isActive
-          ? `${severityButtonClasses[severity]} bg-ink-950`
-          : 'border-line bg-ink-800 text-subtle opacity-55',
-      ].join(' ')}
-      onClick={() => {
-        onToggle(severity);
-      }}
-    >
-      {label}
-      <span className="rounded-full bg-ink-800 px-1.5 py-0.5 text-[10px]">{count}</span>
-    </button>
   );
 };
