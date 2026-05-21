@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 
-import { unwrapIpcResponse } from '@renderer/ipc/unwrapIpcResponse';
-
+import { useActivityStore } from './activityStore';
+import { useSearchStore } from './searchStore';
+import { useSettingsStore } from './settingsStore';
+import { useViewerStore } from './viewerStore';
+import { useWatcherStore } from './watcherStore';
+import { useWorkspaceStore } from './workspaceStore';
 import type { LogSeverity } from '@renderer/features/logViewer/logParsing';
 import type {
   DirectoryScanResult,
@@ -12,8 +16,7 @@ import type {
   PathScanIssue,
 } from '@shared/contracts/files';
 
-const INITIAL_READ_BYTES = 512 * 1024;
-const MAX_RENDERER_CONTENT_CHARS = 400_000;
+const MAX_ACTIVITY_SAMPLES = 240;
 
 export interface LoadedFileDocument {
   content: string;
@@ -22,12 +25,19 @@ export interface LoadedFileDocument {
   nextOffset: number;
   truncatedHead: boolean;
   trimmedInRenderer: boolean;
+  trimmedCharacters: number;
+  lineCount: number;
   lastUpdatedAt: string;
 }
 
 export interface WatchingFileState {
   offset: number;
   startedAt: string;
+  lastUpdateAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorMessage: string | null;
+  updateCount: number;
+  bytesRead: number;
   alreadyWatching: boolean;
 }
 
@@ -38,11 +48,13 @@ interface LastFileUpdate {
   changeType: FileUpdateEvent['changeType'];
 }
 
-interface ViewerPreferences {
+export interface ViewerPreferences {
   autoScroll: boolean;
   lineWrap: boolean;
   showLineNumbers: boolean;
   filterToMatches: boolean;
+  compactMode: boolean;
+  collapseRepeatedLogs: boolean;
   severityFilters: Record<LogSeverity, boolean>;
 }
 
@@ -57,6 +69,30 @@ export interface OpenLogTab {
   scrollTop: number;
 }
 
+export interface RecentSourceItem {
+  path: string;
+  name: string;
+  kind: 'file' | 'directory';
+  lastOpenedAt: string;
+}
+
+export interface ActivitySample {
+  filePath: string;
+  receivedAt: string;
+  bytesRead: number;
+  lineCount: number;
+}
+
+export interface WorkspacePreferencesSnapshot {
+  themeMode: ThemeMode;
+  isSidebarVisible: boolean;
+  isExplorerVisible: boolean;
+  isLogViewerExpanded: boolean;
+  preferences: ViewerPreferences;
+  recentSources: RecentSourceItem[];
+  searchHistory: string[];
+}
+
 interface FileMonitorState {
   directories: DirectoryScanResult[];
   filesByPath: Record<string, LogFileMetadata>;
@@ -65,7 +101,10 @@ interface FileMonitorState {
   documentsByPath: Record<string, LoadedFileDocument>;
   watchingFiles: Record<string, WatchingFileState>;
   openTabs: OpenLogTab[];
+  recentSources: RecentSourceItem[];
+  activitySamples: ActivitySample[];
   searchQuery: string;
+  searchHistory: string[];
   activeSearchMatchIndex: number;
   preferences: ViewerPreferences;
   themeMode: ThemeMode;
@@ -80,6 +119,7 @@ interface FileMonitorState {
   selectFilesFromDialog: () => Promise<void>;
   selectDirectoryFromDialog: () => Promise<void>;
   scanDroppedFiles: (files: File[]) => Promise<void>;
+  openRecentSource: (path: string) => Promise<void>;
   selectFile: (filePath: string) => Promise<void>;
   loadFile: (filePath: string) => Promise<FileContentResult | null>;
   startWatching: (filePath: string) => Promise<void>;
@@ -104,31 +144,20 @@ interface FileMonitorState {
   toggleLineWrap: () => void;
   toggleLineNumbers: () => void;
   toggleFilterToMatches: () => void;
+  toggleCompactMode: () => void;
+  toggleCollapseRepeatedLogs: () => void;
   toggleSeverityFilter: (severity: LogSeverity) => void;
   resetLogFilters: () => void;
+  saveCurrentSearch: () => void;
+  exportWorkspacePreferences: () => string;
+  importWorkspacePreferences: (rawValue: string) => void;
   closeTab: (filePath: string) => void;
+  removeFile: (filePath: string) => void;
+  removeDirectory: (dirPath: string) => void;
   pinTab: (filePath: string) => void;
   setTabScrollPosition: (filePath: string, scrollTop: number) => void;
   restoreWorkspace: () => void;
-}
-
-type FileMonitorSet = (
-  partial: Partial<FileMonitorState> | ((state: FileMonitorState) => Partial<FileMonitorState>),
-  replace?: false,
-) => void;
-
-type FileMonitorGet = () => FileMonitorState;
-
-interface PersistedWorkspaceState {
-  selectedFilePath: string | null;
-  openTabs: OpenLogTab[];
-  watchedFilePaths: string[];
-  themeMode: ThemeMode;
-  isSidebarVisible: boolean;
-  isExplorerVisible: boolean;
-  isLogViewerExpanded: boolean;
-  searchQuery: string;
-  preferences: ViewerPreferences;
+  clearWorkspaceHistory: () => void;
 }
 
 const WORKSPACE_STORAGE_KEY = 'monitoring-log.workspace.v1';
@@ -143,7 +172,35 @@ const createEnabledSeverityFilters = (): Record<LogSeverity, boolean> => {
   };
 };
 
+const createDefaultPreferences = (): ViewerPreferences => {
+  return {
+    autoScroll: true,
+    lineWrap: true,
+    showLineNumbers: true,
+    filterToMatches: false,
+    compactMode: false,
+    collapseRepeatedLogs: true,
+    severityFilters: createEnabledSeverityFilters(),
+  };
+};
+
+const mergePreferencesWithDefaults = (
+  userPrefs: Partial<ViewerPreferences> | null | undefined,
+): ViewerPreferences => {
+  const defaults = createDefaultPreferences();
+  if (!userPrefs) return defaults;
+  return {
+    ...defaults,
+    ...userPrefs,
+    severityFilters: {
+      ...defaults.severityFilters,
+      ...(userPrefs.severityFilters || {}),
+    },
+  };
+};
+
 export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
+  // Local/Legacy States synced from modular stores
   directories: [],
   filesByPath: {},
   selectedFilePath: null,
@@ -151,15 +208,12 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   documentsByPath: {},
   watchingFiles: {},
   openTabs: [],
+  recentSources: [],
+  activitySamples: [],
   searchQuery: '',
+  searchHistory: [],
   activeSearchMatchIndex: 0,
-  preferences: {
-    autoScroll: true,
-    lineWrap: true,
-    showLineNumbers: true,
-    filterToMatches: false,
-    severityFilters: createEnabledSeverityFilters(),
-  },
+  preferences: createDefaultPreferences(),
   themeMode: 'light',
   isSettingsOpen: false,
   isSidebarVisible: true,
@@ -170,331 +224,78 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   pendingOperations: 0,
   lastUpdate: null,
 
+  // Delegated Actions
   selectFilesFromDialog: async (): Promise<void> => {
-    beginOperation(set);
-    clearMessages(set);
-    logRendererInfo('Renderer requested file selection.');
-
-    try {
-      const result = unwrapIpcResponse(await window.desktop.files.selectFiles());
-
-      if (result.canceled) {
-        set({ statusMessage: 'File selection canceled.' });
-        return;
-      }
-
-      registerFiles(set, get, result.files);
-      set({ statusMessage: `Selected ${result.files.length} file(s).` });
-    } catch (error) {
-      applyError(set, error, 'Unable to select files.');
-    } finally {
-      finishOperation(set);
-    }
+    await useWorkspaceStore.getState().selectFilesFromDialog(async (path) => {
+      return get().loadFile(path);
+    });
   },
 
   selectDirectoryFromDialog: async (): Promise<void> => {
-    beginOperation(set);
-    clearMessages(set);
-    logRendererInfo('Renderer requested directory selection.');
-
-    try {
-      const result = unwrapIpcResponse(await window.desktop.files.selectDirectory());
-
-      if (result.canceled || !result.scan) {
-        set({ statusMessage: 'Directory selection canceled.' });
-        return;
-      }
-
-      registerDirectories(set, get, [result.scan]);
-      set({ statusMessage: `Discovered ${result.scan.files.length} file(s).` });
-    } catch (error) {
-      applyError(set, error, 'Unable to select directory.');
-    } finally {
-      finishOperation(set);
-    }
+    await useWorkspaceStore.getState().selectDirectoryFromDialog();
   },
 
   scanDroppedFiles: async (files: File[]): Promise<void> => {
-    const paths = window.desktop.files.getDroppedPaths(files);
+    await useWorkspaceStore.getState().scanDroppedFiles(files, async (path) => {
+      return get().loadFile(path);
+    });
+  },
 
-    if (paths.length === 0) {
-      set({ statusMessage: 'No readable file paths were dropped.' });
-      return;
-    }
-
-    beginOperation(set);
-    clearMessages(set);
-    set({ scanIssues: [] });
-    logRendererInfo('Renderer requested dropped path scan.', { pathCount: paths.length });
-
-    try {
-      const result = unwrapIpcResponse(await window.desktop.files.scanPaths(paths));
-      const discoveredFileCount =
-        result.files.length +
-        result.directories.reduce((count, directory) => count + directory.files.length, 0);
-
-      registerFiles(set, get, result.files);
-      registerDirectories(set, get, result.directories);
-      set({
-        scanIssues: [
-          ...result.errors,
-          ...result.unsupportedPaths.map((path) => ({
-            path,
-            reason: 'Unsupported path or file type.',
-          })),
-        ],
-        statusMessage: `Discovered ${discoveredFileCount} file(s).`,
-      });
-    } catch (error) {
-      applyError(set, error, 'Unable to scan dropped paths.');
-    } finally {
-      finishOperation(set);
-    }
+  openRecentSource: async (path: string): Promise<void> => {
+    await useWorkspaceStore.getState().openRecentSource(path, async (filePath) => {
+      return get().loadFile(filePath);
+    });
   },
 
   selectFile: async (filePath: string): Promise<void> => {
-    set((state) => ({
-      selectedFilePath: filePath,
-      errorMessage: null,
-      activeSearchMatchIndex: 0,
-      openTabs: upsertOpenTab(state.openTabs, filePath).map((tab) =>
-        tab.filePath === filePath
-          ? { ...tab, unreadCount: 0, lastViewedAt: new Date().toISOString() }
-          : tab,
-      ),
-    }));
-
+    useSettingsStore.getState().closeAdvancedSettings();
+    await useViewerStore.getState().selectFile(filePath, (path) => {
+      useWorkspaceStore.getState().upsertOpenTab(path);
+    });
     if (!get().documentsByPath[filePath]) {
       await get().loadFile(filePath);
     }
   },
 
   loadFile: async (filePath: string): Promise<FileContentResult | null> => {
-    beginOperation(set);
-    clearMessages(set);
-
-    try {
-      const result = unwrapIpcResponse(
-        await window.desktop.files.readFile({ filePath, maxBytes: INITIAL_READ_BYTES }),
-      );
-      const trimmedContent = trimContent(result.content);
-
-      set((state) => ({
-        filesByPath: {
-          ...state.filesByPath,
-          [result.file.path]: result.file,
-        },
-        openTabs: upsertOpenTab(state.openTabs, result.file.path),
-        documentsByPath: {
-          ...state.documentsByPath,
-          [filePath]: {
-            content: trimmedContent.content,
-            bytesRead: result.bytesRead,
-            startOffset: result.startOffset,
-            nextOffset: result.nextOffset,
-            truncatedHead: result.truncatedHead,
-            trimmedInRenderer: trimmedContent.wasTrimmed,
-            lastUpdatedAt: new Date().toISOString(),
-          },
-        },
-      }));
-
-      return result;
-    } catch (error) {
-      applyError(set, error, 'Unable to read file.');
-      return null;
-    } finally {
-      finishOperation(set);
-    }
-  },
-
-  startWatching: async (filePath: string): Promise<void> => {
-    if (get().watchingFiles[filePath]) {
-      set({ statusMessage: 'File is already being watched.' });
-      return;
-    }
-
-    beginOperation(set);
-    clearMessages(set);
-    logRendererInfo('Renderer requested watcher start.', { filePath });
-
-    try {
-      const currentDocument = get().documentsByPath[filePath];
-      const loadedDocument = currentDocument ? null : await get().loadFile(filePath);
-      const nextOffset = currentDocument?.nextOffset ?? loadedDocument?.nextOffset;
-
-      if (nextOffset === undefined) {
-        throw new Error('Unable to determine file offset before watching.');
-      }
-
-      const result = unwrapIpcResponse(
-        await window.desktop.files.startWatching({ filePath, startOffset: nextOffset }),
-      );
-
-      set((state) => ({
-        watchingFiles: {
-          ...state.watchingFiles,
-          [result.file.path]: {
-            offset: result.offset,
-            startedAt: new Date().toISOString(),
-            alreadyWatching: result.alreadyWatching,
-          },
-        },
-        statusMessage: result.alreadyWatching
-          ? 'Watcher already active.'
-          : 'Started watching file.',
-      }));
-    } catch (error) {
-      applyError(set, error, 'Unable to start watcher.');
-    } finally {
-      finishOperation(set);
-    }
-  },
-
-  stopWatching: async (filePath: string): Promise<void> => {
-    beginOperation(set);
-    clearMessages(set);
-    logRendererInfo('Renderer requested watcher stop.', { filePath });
-
-    try {
-      const result = unwrapIpcResponse(await window.desktop.files.stopWatching({ filePath }));
-
-      set((state) => {
-        const watchingFiles = { ...state.watchingFiles };
-        delete watchingFiles[result.filePath];
-
-        return {
-          watchingFiles,
-          statusMessage: result.stopped ? 'Stopped watching file.' : 'Watcher was not active.',
-        };
-      });
-    } catch (error) {
-      applyError(set, error, 'Unable to stop watcher.');
-    } finally {
-      finishOperation(set);
-    }
-  },
-
-  stopAllWatching: async (): Promise<void> => {
-    const watchedPaths = Object.keys(get().watchingFiles);
-
-    if (watchedPaths.length === 0) {
-      return;
-    }
-
-    beginOperation(set);
-    clearMessages(set);
-    logRendererInfo('Renderer requested all watchers stop.', { watcherCount: watchedPaths.length });
-
-    try {
-      await Promise.all(
-        watchedPaths.map(async (filePath) =>
-          unwrapIpcResponse(await window.desktop.files.stopWatching({ filePath })),
-        ),
-      );
-
-      set({
-        watchingFiles: {},
-        statusMessage: `Stopped ${watchedPaths.length} watcher(s).`,
-      });
-    } catch (error) {
-      applyError(set, error, 'Unable to stop all watchers.');
-    } finally {
-      finishOperation(set);
-    }
-  },
-
-  applyFileUpdate: (event: FileUpdateEvent): void => {
-    set((state) => {
-      const currentDocument = state.documentsByPath[event.filePath];
-      const nextContent =
-        event.changeType === 'reset'
-          ? event.content
-          : `${currentDocument?.content ?? ''}${event.content}`;
-      const trimmedContent = trimContent(nextContent);
-      const currentWatch = state.watchingFiles[event.filePath];
-
-      return {
-        documentsByPath: {
-          ...state.documentsByPath,
-          [event.filePath]: {
-            content: trimmedContent.content,
-            bytesRead: (currentDocument?.bytesRead ?? 0) + event.bytesRead,
-            startOffset: event.changeType === 'reset' ? 0 : (currentDocument?.startOffset ?? 0),
-            nextOffset: event.nextOffset,
-            truncatedHead: currentDocument?.truncatedHead ?? false,
-            trimmedInRenderer:
-              (currentDocument?.trimmedInRenderer ?? false) || trimmedContent.wasTrimmed,
-            lastUpdatedAt: event.changedAt,
-          },
-        },
-        watchingFiles: currentWatch
-          ? {
-              ...state.watchingFiles,
-              [event.filePath]: {
-                ...currentWatch,
-                offset: event.nextOffset,
-              },
-            }
-          : state.watchingFiles,
-        openTabs: state.openTabs.map((tab) =>
-          tab.filePath === event.filePath
-            ? {
-                ...tab,
-                unreadCount:
-                  state.selectedFilePath === event.filePath
-                    ? 0
-                    : tab.unreadCount + Math.max(1, event.content.split(/\r?\n/).length - 1),
-              }
-            : tab,
-        ),
-        lastUpdate: {
-          filePath: event.filePath,
-          bytesRead: event.bytesRead,
-          changedAt: event.changedAt,
-          changeType: event.changeType,
-        },
-        statusMessage: `Read ${event.bytesRead} appended byte(s).`,
-      };
+    return useViewerStore.getState().loadFile(filePath, (res) => {
+      useWorkspaceStore.getState().registerFiles([res.file], async () => {});
     });
   },
 
+  startWatching: async (filePath: string): Promise<void> => {
+    await useWatcherStore.getState().startWatching(
+      filePath,
+      () => useViewerStore.getState().documentsByPath[filePath]?.nextOffset,
+      async () => {
+        if (!get().documentsByPath[filePath]) {
+          await get().loadFile(filePath);
+        }
+      },
+    );
+  },
+
+  stopWatching: async (filePath: string): Promise<void> => {
+    await useWatcherStore.getState().stopWatching(filePath);
+  },
+
+  stopAllWatching: async (): Promise<void> => {
+    await useWatcherStore.getState().stopAllWatching();
+  },
+
+  applyFileUpdate: (event: FileUpdateEvent): void => {
+    queueFileUpdate(set, event);
+  },
+
   applyWatchError: (event: FileWatchErrorEvent): void => {
+    useWatcherStore.getState().applyWatchError(event);
     set({
       errorMessage: `${event.filePath}: ${event.message}`,
-      statusMessage: null,
     });
   },
 
   clearActiveView: (): void => {
-    const filePath = get().selectedFilePath;
-
-    if (!filePath) {
-      return;
-    }
-
-    set((state) => {
-      const currentDocument = state.documentsByPath[filePath];
-
-      if (!currentDocument) {
-        return state;
-      }
-
-      return {
-        documentsByPath: {
-          ...state.documentsByPath,
-          [filePath]: {
-            ...currentDocument,
-            content: '',
-            bytesRead: 0,
-            trimmedInRenderer: false,
-            lastUpdatedAt: new Date().toISOString(),
-          },
-        },
-        statusMessage: 'Cleared current viewer buffer.',
-      };
-    });
-    logRendererInfo('Renderer cleared active log view.', { filePath });
+    useViewerStore.getState().clearActiveView();
   },
 
   copyTextToClipboard: async (text: string): Promise<void> => {
@@ -506,9 +307,8 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
     try {
       await navigator.clipboard.writeText(text);
       set({ statusMessage: 'Copied visible logs to clipboard.' });
-      logRendererInfo('Renderer copied visible log content.', { characterCount: text.length });
     } catch (error) {
-      applyError(set, error, 'Unable to copy logs.');
+      set({ errorMessage: error instanceof Error ? error.message : 'Unable to copy.' });
     }
   },
 
@@ -526,46 +326,34 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
     link.click();
     URL.revokeObjectURL(url);
     set({ statusMessage: 'Exported visible logs.' });
-    logRendererInfo('Renderer exported visible log content.', {
-      fileName,
-      characterCount: text.length,
-    });
   },
 
   reloadApplicationWindow: async (): Promise<void> => {
-    logRendererInfo('Renderer requested window reload from settings.');
     await window.desktop.app.reloadWindow();
   },
 
   setSearchQuery: (query: string): void => {
-    set({ searchQuery: query, activeSearchMatchIndex: 0 });
+    useSearchStore.getState().setSearchQuery(query);
   },
 
   selectNextSearchMatch: (): void => {
-    set((state) => ({
-      activeSearchMatchIndex: state.activeSearchMatchIndex + 1,
-    }));
+    useSearchStore.getState().selectNextSearchMatch();
   },
 
   selectPreviousSearchMatch: (): void => {
-    set((state) => ({
-      activeSearchMatchIndex: Math.max(0, state.activeSearchMatchIndex - 1),
-    }));
+    useSearchStore.getState().selectPreviousSearchMatch();
   },
 
   setThemeMode: (themeMode: ThemeMode): void => {
-    set({ themeMode, statusMessage: `Theme changed to ${themeMode} mode.` });
-    logRendererInfo('Renderer changed theme.', { themeMode });
+    useSettingsStore.getState().setTheme(themeMode);
   },
 
   toggleSettingsPanel: (): void => {
-    set((state) => ({
-      isSettingsOpen: !state.isSettingsOpen,
-    }));
+    useSettingsStore.getState().toggleSettingsPanel();
   },
 
   closeSettingsPanel: (): void => {
-    set({ isSettingsOpen: false });
+    useSettingsStore.getState().closeSettingsPanel();
   },
 
   toggleSidebarVisibility: (): void => {
@@ -573,7 +361,6 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
       isSidebarVisible: !state.isSidebarVisible,
       statusMessage: state.isSidebarVisible ? 'Sidebar hidden.' : 'Sidebar shown.',
     }));
-    logRendererInfo('Renderer toggled sidebar visibility.');
   },
 
   toggleExplorerVisibility: (): void => {
@@ -581,7 +368,6 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
       isExplorerVisible: !state.isExplorerVisible,
       statusMessage: state.isExplorerVisible ? 'File explorer hidden.' : 'File explorer shown.',
     }));
-    logRendererInfo('Renderer toggled file explorer visibility.');
   },
 
   toggleLogViewerExpanded: (): void => {
@@ -592,298 +378,314 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
         ? 'Exited focused log view.'
         : 'Entered focused log view.',
     }));
-    logRendererInfo('Renderer toggled focused log view.');
   },
 
   toggleAutoScroll: (): void => {
-    set((state) => ({
-      preferences: {
-        ...state.preferences,
-        autoScroll: !state.preferences.autoScroll,
-      },
-    }));
+    useSettingsStore.getState().toggleAutoScroll();
   },
 
   toggleLineWrap: (): void => {
-    set((state) => ({
-      preferences: {
-        ...state.preferences,
-        lineWrap: !state.preferences.lineWrap,
-      },
-    }));
+    useSettingsStore.getState().toggleLineWrap();
   },
 
   toggleLineNumbers: (): void => {
-    set((state) => ({
-      preferences: {
-        ...state.preferences,
-        showLineNumbers: !state.preferences.showLineNumbers,
-      },
-    }));
+    useSettingsStore.getState().toggleLineNumbers();
   },
 
   toggleFilterToMatches: (): void => {
-    set((state) => ({
-      preferences: {
-        ...state.preferences,
-        filterToMatches: !state.preferences.filterToMatches,
-      },
-    }));
+    useSettingsStore.getState().toggleFilterToMatches();
+  },
+
+  toggleCompactMode: (): void => {
+    useSettingsStore.getState().toggleCompactMode();
+  },
+
+  toggleCollapseRepeatedLogs: (): void => {
+    useSettingsStore.getState().toggleCollapseRepeatedLogs();
   },
 
   toggleSeverityFilter: (severity: LogSeverity): void => {
-    set((state) => ({
-      preferences: {
-        ...state.preferences,
-        severityFilters: {
-          ...state.preferences.severityFilters,
-          [severity]: !state.preferences.severityFilters[severity],
-        },
-      },
-    }));
+    useSettingsStore.getState().toggleSeverityFilter(severity);
   },
 
   resetLogFilters: (): void => {
-    set((state) => ({
-      searchQuery: '',
-      activeSearchMatchIndex: 0,
-      preferences: {
-        ...state.preferences,
-        filterToMatches: false,
-        severityFilters: createEnabledSeverityFilters(),
-      },
-      statusMessage: 'Log filters reset.',
-    }));
+    useSettingsStore.getState().resetLogFilters();
+    useSearchStore.getState().setSearchQuery('');
+    set({ statusMessage: 'Log filters reset.' });
+  },
+
+  saveCurrentSearch: (): void => {
+    useSearchStore.getState().saveCurrentSearch();
+  },
+
+  exportWorkspacePreferences: (): string => {
+    const state = get();
+    const snapshot = {
+      themeMode: state.themeMode,
+      isSidebarVisible: state.isSidebarVisible,
+      isExplorerVisible: state.isExplorerVisible,
+      isLogViewerExpanded: state.isLogViewerExpanded,
+      preferences: state.preferences,
+      recentSources: state.recentSources,
+      searchHistory: state.searchHistory,
+    };
+    return JSON.stringify(snapshot, null, 2);
+  },
+
+  importWorkspacePreferences: (rawValue: string): void => {
+    try {
+      const parsed = JSON.parse(rawValue);
+      useSettingsStore.setState({
+        theme: parsed.themeMode === 'dark' ? 'dark' : 'light',
+        preferences: mergePreferencesWithDefaults(parsed.preferences),
+      });
+      useWorkspaceStore.setState({
+        recentSources: parsed.recentSources ?? [],
+      });
+      useSearchStore.setState({
+        searchHistory: parsed.searchHistory ?? [],
+      });
+      set({
+        isSidebarVisible: parsed.isSidebarVisible ?? true,
+        isExplorerVisible: parsed.isExplorerVisible ?? true,
+        isLogViewerExpanded: parsed.isLogViewerExpanded ?? false,
+        statusMessage: 'Workspace preferences imported.',
+      });
+    } catch (error) {
+      set({ errorMessage: 'Unable to import preferences.' });
+    }
   },
 
   closeTab: (filePath: string): void => {
-    const tab = get().openTabs.find((item) => item.filePath === filePath);
+    useWorkspaceStore.getState().closeTab(filePath, get().selectedFilePath, (path) => {
+      set({ selectedFilePath: path });
+    });
+  },
 
-    if (tab?.pinned) {
-      set({ statusMessage: 'Pinned tabs stay open until unpinned.' });
-      return;
+  removeFile: (filePath: string): void => {
+    void useWatcherStore.getState().stopWatching(filePath);
+    useViewerStore.getState().removeFileState(filePath);
+    useWorkspaceStore.getState().removeFile(filePath, get().selectedFilePath, (path) => {
+      if (path) {
+        void get().selectFile(path);
+      } else {
+        useViewerStore.setState({ selectedFilePath: null });
+      }
+    });
+  },
+
+  removeDirectory: (dirPath: string): void => {
+    const directory = useWorkspaceStore.getState().directories.find((d) => d.root.path === dirPath);
+    if (directory) {
+      const getAllFilePaths = (node: any): string[] => {
+        const paths = node.files.map((f: any) => f.path);
+        const childPaths = node.children.flatMap((child: any) =>
+          child.kind === 'directory' ? getAllFilePaths(child) : [child.path],
+        );
+        return [...paths, ...childPaths];
+      };
+      const filePathsToRemove = getAllFilePaths(directory.root);
+      for (const filePath of filePathsToRemove) {
+        void useWatcherStore.getState().stopWatching(filePath);
+        useViewerStore.getState().removeFileState(filePath);
+      }
     }
 
-    set((state) => {
-      const nextTabs = state.openTabs.filter((item) => item.filePath !== filePath);
-      const selectedFilePath =
-        state.selectedFilePath === filePath
-          ? (nextTabs.at(-1)?.filePath ?? null)
-          : state.selectedFilePath;
-
-      return {
-        openTabs: nextTabs,
-        selectedFilePath,
-        statusMessage: 'Closed log tab.',
-      };
+    useWorkspaceStore.getState().removeDirectory(dirPath, get().selectedFilePath, (path) => {
+      if (path) {
+        void get().selectFile(path);
+      } else {
+        useViewerStore.setState({ selectedFilePath: null });
+      }
     });
-    logRendererInfo('Renderer closed log tab.', { filePath });
   },
 
   pinTab: (filePath: string): void => {
-    set((state) => ({
-      openTabs: state.openTabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, pinned: !tab.pinned } : tab,
-      ),
-    }));
-    logRendererInfo('Renderer toggled log tab pin.', { filePath });
+    useWorkspaceStore.getState().pinTab(filePath);
   },
 
   setTabScrollPosition: (filePath: string, scrollTop: number): void => {
-    set((state) => ({
-      openTabs: state.openTabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, scrollTop } : tab,
-      ),
-    }));
+    useWorkspaceStore.getState().setTabScrollPosition(filePath, scrollTop);
   },
 
   restoreWorkspace: (): void => {
-    const persistedWorkspace = readPersistedWorkspace();
+    const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (!raw) return;
 
-    if (!persistedWorkspace) {
-      return;
+    try {
+      const persisted = JSON.parse(raw);
+      useSettingsStore.setState({
+        theme: persisted.themeMode ?? 'light',
+        preferences: mergePreferencesWithDefaults(persisted.preferences),
+      });
+      useSearchStore.setState({
+        searchHistory: persisted.searchHistory ?? [],
+        searchQuery: persisted.searchQuery ?? '',
+      });
+      set({
+        selectedFilePath: persisted.selectedFilePath,
+        isSidebarVisible: persisted.isSidebarVisible ?? true,
+        isExplorerVisible: persisted.isExplorerVisible ?? true,
+        isLogViewerExpanded: persisted.isLogViewerExpanded ?? false,
+      });
+      useWorkspaceStore.getState().restoreWorkspaceState(
+        persisted,
+        async (path) => get().loadFile(path),
+        async (path) => get().startWatching(path),
+      );
+    } catch {
+      // ignore
     }
+  },
 
-    set({
-      selectedFilePath: persistedWorkspace.selectedFilePath,
-      openTabs: persistedWorkspace.openTabs,
-      themeMode: persistedWorkspace.themeMode,
-      isSidebarVisible: persistedWorkspace.isSidebarVisible,
-      isExplorerVisible: persistedWorkspace.isExplorerVisible,
-      isLogViewerExpanded: persistedWorkspace.isLogViewerExpanded,
-      searchQuery: persistedWorkspace.searchQuery,
-      preferences: persistedWorkspace.preferences,
-      statusMessage: 'Workspace restored.',
-    });
-
-    for (const filePath of persistedWorkspace.watchedFilePaths) {
-      void get().startWatching(filePath);
-    }
-
-    if (persistedWorkspace.selectedFilePath) {
-      void get().loadFile(persistedWorkspace.selectedFilePath);
-    }
-
-    logRendererInfo('Renderer restored workspace.', {
-      tabCount: persistedWorkspace.openTabs.length,
-      watcherCount: persistedWorkspace.watchedFilePaths.length,
-    });
+  clearWorkspaceHistory: (): void => {
+    useWorkspaceStore.getState().clearWorkspaceHistory();
+    useSearchStore.getState().clearSearchHistory();
+    set({ statusMessage: 'Workspace history cleared.' });
   },
 }));
 
-const registerFiles = (
-  set: FileMonitorSet,
-  get: FileMonitorGet,
-  incomingFiles: LogFileMetadata[],
-): void => {
-  if (incomingFiles.length === 0) {
+// Set up two-way subscription syncs to make modular stores work in absolute harmony with the legacy store
+useSettingsStore.subscribe((settingsState) => {
+  useFileMonitorStore.setState({
+    themeMode: settingsState.theme,
+    isSettingsOpen: settingsState.isSettingsOpen,
+    preferences: settingsState.preferences,
+  });
+});
+
+useWatcherStore.subscribe((watcherState) => {
+  useFileMonitorStore.setState({
+    watchingFiles: watcherState.watchingFiles,
+  });
+});
+
+useSearchStore.subscribe((searchState) => {
+  useFileMonitorStore.setState({
+    searchQuery: searchState.searchQuery,
+    searchHistory: searchState.searchHistory,
+    activeSearchMatchIndex: searchState.activeSearchMatchIndex,
+  });
+});
+
+useViewerStore.subscribe((viewerState) => {
+  useFileMonitorStore.setState({
+    selectedFilePath: viewerState.selectedFilePath,
+    documentsByPath: viewerState.documentsByPath,
+    errorMessage: viewerState.errorMessage,
+    statusMessage: viewerState.statusMessage,
+  });
+});
+
+useWorkspaceStore.subscribe((workspaceState) => {
+  useFileMonitorStore.setState({
+    directories: workspaceState.directories,
+    filesByPath: workspaceState.filesByPath,
+    openTabs: workspaceState.openTabs,
+    recentSources: workspaceState.recentSources,
+    scanIssues: workspaceState.scanIssues,
+  });
+});
+
+// Performance optimization: batch updates using animation frame queue
+let queuedFileUpdates: FileUpdateEvent[] = [];
+let isFileUpdateFlushScheduled = false;
+
+const queueFileUpdate = (set: any, event: FileUpdateEvent): void => {
+  queuedFileUpdates = [...queuedFileUpdates, event];
+
+  if (isFileUpdateFlushScheduled) {
     return;
   }
 
-  set((state) => {
-    const filesByPath = { ...state.filesByPath };
-    let openTabs = state.openTabs;
+  isFileUpdateFlushScheduled = true;
 
-    for (const file of incomingFiles) {
-      filesByPath[file.path] = file;
-      openTabs = upsertOpenTab(openTabs, file.path);
+  const flushQueuedUpdates = (): void => {
+    const events = queuedFileUpdates;
+    queuedFileUpdates = [];
+    isFileUpdateFlushScheduled = false;
+
+    if (events.length > 0) {
+      applyQueuedFileUpdates(set, events);
     }
-
-    return {
-      filesByPath,
-      openTabs,
-      selectedFilePath: state.selectedFilePath ?? incomingFiles[0]?.path ?? null,
-    };
-  });
-
-  const selectedFilePath = get().selectedFilePath;
-
-  if (selectedFilePath && !get().documentsByPath[selectedFilePath]) {
-    void get().loadFile(selectedFilePath);
-  }
-};
-
-const upsertOpenTab = (tabs: OpenLogTab[], filePath: string): OpenLogTab[] => {
-  if (tabs.some((tab) => tab.filePath === filePath)) {
-    return tabs;
-  }
-
-  return [
-    ...tabs,
-    {
-      filePath,
-      pinned: false,
-      unreadCount: 0,
-      openedAt: new Date().toISOString(),
-      lastViewedAt: new Date().toISOString(),
-      scrollTop: 0,
-    },
-  ];
-};
-
-const registerDirectories = (
-  set: FileMonitorSet,
-  get: FileMonitorGet,
-  incomingDirectories: DirectoryScanResult[],
-): void => {
-  if (incomingDirectories.length === 0) {
-    return;
-  }
-
-  set((state) => {
-    const directoriesByPath = new Map(
-      state.directories.map((directory) => [directory.root.path, directory]),
-    );
-
-    for (const directory of incomingDirectories) {
-      directoriesByPath.set(directory.root.path, directory);
-    }
-
-    return {
-      directories: Array.from(directoriesByPath.values()).sort((left, right) =>
-        left.root.path.localeCompare(right.root.path),
-      ),
-    };
-  });
-
-  registerFiles(
-    set,
-    get,
-    incomingDirectories.flatMap((directory) => directory.files),
-  );
-};
-
-const beginOperation = (set: FileMonitorSet): void => {
-  set((state) => ({
-    pendingOperations: state.pendingOperations + 1,
-  }));
-};
-
-const finishOperation = (set: FileMonitorSet): void => {
-  set((state) => ({
-    pendingOperations: Math.max(0, state.pendingOperations - 1),
-  }));
-};
-
-const clearMessages = (set: FileMonitorSet): void => {
-  set({
-    statusMessage: null,
-    errorMessage: null,
-  });
-};
-
-const applyError = (set: FileMonitorSet, error: unknown, fallbackMessage: string): void => {
-  const message = error instanceof Error ? error.message : fallbackMessage;
-
-  set({
-    errorMessage: message,
-    statusMessage: null,
-  });
-  window.desktop.logging.log('error', fallbackMessage, 'file-monitor-store.ts', { error: message });
-};
-
-const trimContent = (content: string): { content: string; wasTrimmed: boolean } => {
-  if (content.length <= MAX_RENDERER_CONTENT_CHARS) {
-    return { content, wasTrimmed: false };
-  }
-
-  return {
-    content: content.slice(content.length - MAX_RENDERER_CONTENT_CHARS),
-    wasTrimmed: true,
   };
+
+  window.requestAnimationFrame(flushQueuedUpdates);
 };
 
-const logRendererInfo = (message: string, data?: Record<string, unknown>): void => {
-  window.desktop.logging.log('info', message, 'file-monitor-store.ts', data);
-};
+const applyQueuedFileUpdates = (set: any, events: FileUpdateEvent[]): void => {
+  const state = useFileMonitorStore.getState();
+  const activitySamples = [...state.activitySamples];
+  let lastUpdate: LastFileUpdate | null = state.lastUpdate;
 
-const readPersistedWorkspace = (): PersistedWorkspaceState | null => {
-  try {
-    const rawValue = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  for (const event of events) {
+    useViewerStore
+      .getState()
+      .applyFileUpdate(
+        event.filePath,
+        event.content,
+        event.bytesRead,
+        event.previousOffset,
+        event.nextOffset,
+        event.sizeBytes,
+        event.changedAt,
+        event.changeType,
+      );
+    useWorkspaceStore
+      .getState()
+      .updateFileMetadata(event.filePath, event.sizeBytes, event.changedAt);
+    useWorkspaceStore
+      .getState()
+      .updateOpenTabsUnread(event.filePath, state.selectedFilePath, countNewLines(event.content));
+    useWatcherStore
+      .getState()
+      .updateWatcherOffset(event.filePath, event.nextOffset, event.bytesRead, event.changedAt);
 
-    if (!rawValue) {
-      return null;
-    }
+    useActivityStore.getState().appendSample({
+      sourceId: event.filePath,
+      receivedAt: event.changedAt,
+      bytesRead: event.bytesRead,
+      lineCount: countNewLines(event.content),
+    });
 
-    return JSON.parse(rawValue) as PersistedWorkspaceState;
-  } catch (error) {
-    window.desktop.logging.log(
-      'warn',
-      'Failed to restore persisted workspace.',
-      'file-monitor-store.ts',
-      {
-        error: error instanceof Error ? error.message : 'Unknown restore error.',
-      },
-    );
-    return null;
+    activitySamples.push({
+      filePath: event.filePath,
+      receivedAt: event.changedAt,
+      bytesRead: event.bytesRead,
+      lineCount: countNewLines(event.content),
+    });
+
+    lastUpdate = {
+      filePath: event.filePath,
+      bytesRead: event.bytesRead,
+      changedAt: event.changedAt,
+      changeType: event.changeType,
+    };
   }
+
+  set({
+    activitySamples: activitySamples.slice(-MAX_ACTIVITY_SAMPLES),
+    lastUpdate,
+  });
 };
+
+const countNewLines = (content: string): number => {
+  if (content.length === 0) {
+    return 0;
+  }
+  return content.endsWith('\n') ? content.split(/\r?\n/).length - 1 : content.split(/\r?\n/).length;
+};
+
+// Workspace Persistence Auto-save on subscribe
+let lastPersistedWorkspaceSignature = '';
 
 const writePersistedWorkspace = (state: FileMonitorState): void => {
-  const workspaceState: PersistedWorkspaceState = {
+  const workspaceState = {
     selectedFilePath: state.selectedFilePath,
     openTabs: state.openTabs,
     watchedFilePaths: Object.keys(state.watchingFiles),
+    recentSources: state.recentSources,
+    searchHistory: state.searchHistory,
     themeMode: state.themeMode,
     isSidebarVisible: state.isSidebarVisible,
     isExplorerVisible: state.isExplorerVisible,
@@ -891,13 +693,18 @@ const writePersistedWorkspace = (state: FileMonitorState): void => {
     searchQuery: state.searchQuery,
     preferences: state.preferences,
   };
+  const serializedWorkspace = JSON.stringify(workspaceState);
+
+  if (serializedWorkspace === lastPersistedWorkspaceSignature) {
+    return;
+  }
+
+  lastPersistedWorkspaceSignature = serializedWorkspace;
 
   try {
-    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspaceState));
-  } catch (error) {
-    window.desktop.logging.log('warn', 'Failed to persist workspace.', 'file-monitor-store.ts', {
-      error: error instanceof Error ? error.message : 'Unknown persist error.',
-    });
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, serializedWorkspace);
+  } catch {
+    // ignore
   }
 };
 
