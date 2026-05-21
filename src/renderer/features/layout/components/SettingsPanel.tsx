@@ -1,75 +1,119 @@
 import {
-  Maximize2,
-  Minimize2,
+  ChevronLeft,
+  Database,
+  Keyboard,
+  LayoutPanelLeft,
   Moon,
-  PanelLeftClose,
-  PanelLeftOpen,
   RefreshCw,
-  Settings,
+  Search,
+  Settings2,
+  SlidersHorizontal,
   Sun,
+  Trash2,
+  Upload,
   X,
 } from 'lucide-react';
+import { useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
 
-import { Badge } from '@renderer/components/ui/Badge';
 import { Button } from '@renderer/components/ui/Button';
 import { SHORTCUTS } from '@renderer/features/shortcuts/shortcutDefinitions';
-import { useFileMonitorStore, type ThemeMode } from '@renderer/stores/fileMonitorStore';
+import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
+import { useSettingsStore } from '@renderer/stores/settingsStore';
 
-import type { ReactNode } from 'react';
-import type { JSX } from 'react';
+type AdvancedSettingsSection = 'general' | 'viewer' | 'filters' | 'workspace' | 'shortcuts';
+type ThemeMode = 'light' | 'dark';
+
+interface SettingRowCompactProps {
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+}
+
+const SettingRowCompact = ({ label, active, onToggle }: SettingRowCompactProps): JSX.Element => {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center justify-between py-0.5 text-left text-xs transition hover:text-readable text-muted outline-none"
+      onClick={onToggle}
+    >
+      <span>{label}</span>
+      <span
+        className={[
+          'flex h-4 w-7 shrink-0 items-center rounded-full border px-0.5 transition',
+          active
+            ? 'justify-end border-success/50 bg-success-soft'
+            : 'justify-start border-line bg-ink-800',
+        ].join(' ')}
+      >
+        <span
+          className={[
+            'h-2.5 w-2.5 rounded-full transition',
+            active ? 'bg-success' : 'bg-subtle',
+          ].join(' ')}
+        />
+      </span>
+    </button>
+  );
+};
 
 export const SettingsPanel = (): JSX.Element | null => {
-  const isSettingsOpen = useFileMonitorStore((state) => state.isSettingsOpen);
-  const themeMode = useFileMonitorStore((state) => state.themeMode);
+  const isSettingsOpen = useSettingsStore((state) => state.isSettingsOpen);
+  const closeSettingsPanel = useSettingsStore((state) => state.closeSettingsPanel);
+  const openAdvancedSettings = useSettingsStore((state) => state.openAdvancedSettings);
+  const themeMode = useSettingsStore((state) => state.theme);
+  const setThemeMode = useSettingsStore((state) => state.setTheme);
+
   const isSidebarVisible = useFileMonitorStore((state) => state.isSidebarVisible);
   const isExplorerVisible = useFileMonitorStore((state) => state.isExplorerVisible);
   const isLogViewerExpanded = useFileMonitorStore((state) => state.isLogViewerExpanded);
   const preferences = useFileMonitorStore((state) => state.preferences);
-  const setThemeMode = useFileMonitorStore((state) => state.setThemeMode);
-  const closeSettingsPanel = useFileMonitorStore((state) => state.closeSettingsPanel);
+
   const toggleSidebarVisibility = useFileMonitorStore((state) => state.toggleSidebarVisibility);
   const toggleExplorerVisibility = useFileMonitorStore((state) => state.toggleExplorerVisibility);
   const toggleLogViewerExpanded = useFileMonitorStore((state) => state.toggleLogViewerExpanded);
   const toggleAutoScroll = useFileMonitorStore((state) => state.toggleAutoScroll);
   const toggleLineWrap = useFileMonitorStore((state) => state.toggleLineWrap);
   const toggleLineNumbers = useFileMonitorStore((state) => state.toggleLineNumbers);
-  const toggleFilterToMatches = useFileMonitorStore((state) => state.toggleFilterToMatches);
-  const resetLogFilters = useFileMonitorStore((state) => state.resetLogFilters);
-  const reloadApplicationWindow = useFileMonitorStore((state) => state.reloadApplicationWindow);
+  const toggleCompactMode = useFileMonitorStore((state) => state.toggleCompactMode);
 
   if (!isSettingsOpen) {
     return null;
   }
 
   return (
-    <div className="absolute inset-0 z-40 flex justify-end bg-ink-950/40 backdrop-blur-sm">
+    <div className="absolute inset-0 z-40">
       <button
         type="button"
-        className="absolute inset-0 cursor-default"
+        className="absolute inset-0 h-full w-full cursor-default bg-transparent outline-none border-none"
         aria-label="Close settings"
         onClick={closeSettingsPanel}
       />
-
-      <aside className="relative z-10 flex h-full w-[390px] flex-col border-l border-line bg-panel shadow-panel">
-        <header className="flex h-16 items-center justify-between border-b border-line px-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-ink-850 text-accent">
-              <Settings size={18} />
-            </div>
+      <aside className="absolute bottom-10 left-14 z-50 flex w-72 flex-col gap-3 rounded-lg border border-line bg-panel p-3.5 shadow-panel animate-in fade-in slide-in-from-bottom-2 duration-150">
+        <header className="flex items-center justify-between border-b border-line/60 pb-2">
+          <div className="flex items-center gap-2">
+            <Settings2 size={15} className="text-accent animate-spin-hover" />
             <div>
-              <h2 className="text-sm font-semibold text-readable">Settings</h2>
-              <p className="text-xs text-muted">Viewer, theme, and workspace controls</p>
+              <h2 className="text-xs font-semibold text-readable">Quick Settings</h2>
+              <p className="text-[10px] text-muted font-normal">Common workspace preferences</p>
             </div>
           </div>
-
-          <Button variant="ghost" size="sm" onClick={closeSettingsPanel} aria-label="Close">
-            <X size={15} />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onClick={closeSettingsPanel}
+            aria-label="Close settings"
+          >
+            <X size={13} />
           </Button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-auto p-5">
-          <SettingsSection title="Appearance" description="Default mode is light.">
-            <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-2.5">
+          <div>
+            <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider mb-1.5">
+              Appearance
+            </span>
+            <div className="grid grid-cols-2 gap-1.5">
               <ThemeButton
                 label="Light"
                 mode="light"
@@ -83,119 +127,438 @@ export const SettingsPanel = (): JSX.Element | null => {
                 onSelect={setThemeMode}
               />
             </div>
-          </SettingsSection>
+          </div>
 
-          <SettingsSection title="Workspace Layout" description="Hide panels when logs need space.">
-            <SettingRow
-              title="Sidebar"
-              description="Source actions and watched files"
+          <div className="h-[1px] bg-line/60" />
+
+          <div className="flex flex-col gap-2">
+            <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider">
+              Workspace Panels
+            </span>
+            <SettingRowCompact
+              label="Source Rail"
               active={isSidebarVisible}
               onToggle={toggleSidebarVisibility}
-              icon={isSidebarVisible ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             />
-            <SettingRow
-              title="File explorer"
-              description="Directory tree and file list"
+            <SettingRowCompact
+              label="File Explorer"
               active={isExplorerVisible}
               onToggle={toggleExplorerVisibility}
-              icon={isExplorerVisible ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             />
-            <SettingRow
-              title="Focused log viewer"
-              description="Hide all panels and use the full window"
+            <SettingRowCompact
+              label="Focus View"
               active={isLogViewerExpanded}
               onToggle={toggleLogViewerExpanded}
-              icon={isLogViewerExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             />
-          </SettingsSection>
+          </div>
 
-          <SettingsSection
-            title="Viewer Defaults"
-            description="Controls are also available above logs."
-          >
-            <SettingRow
-              title="Auto-scroll"
-              description="Follow appended log updates"
+          <div className="h-[1px] bg-line/60" />
+
+          <div className="flex flex-col gap-2">
+            <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider">
+              Viewer Defaults
+            </span>
+            <SettingRowCompact
+              label="Auto-scroll to Bottom"
               active={preferences.autoScroll}
               onToggle={toggleAutoScroll}
             />
-            <SettingRow
-              title="Line wrapping"
-              description="Wrap long log lines inside the viewport"
+            <SettingRowCompact
+              label="Line Wrapping"
               active={preferences.lineWrap}
               onToggle={toggleLineWrap}
             />
-            <SettingRow
-              title="Line numbers"
-              description="Show stable line numbers beside log entries"
+            <SettingRowCompact
+              label="Line Numbers"
               active={preferences.showLineNumbers}
               onToggle={toggleLineNumbers}
             />
-            <SettingRow
-              title="Filter to matches"
-              description="Only show rows that match search text"
-              active={preferences.filterToMatches}
-              onToggle={toggleFilterToMatches}
+            <SettingRowCompact
+              label="Compact Mode"
+              active={preferences.compactMode}
+              onToggle={toggleCompactMode}
             />
-          </SettingsSection>
+          </div>
 
-          <SettingsSection title="Window" description="Safe application-level actions.">
-            <Button
-              variant="secondary"
-              className="w-full justify-start"
-              onClick={() => {
-                void reloadApplicationWindow();
-              }}
-            >
-              <RefreshCw size={15} />
-              Reload Window
-            </Button>
-            <Button variant="ghost" className="w-full justify-start" onClick={resetLogFilters}>
-              Reset search and severity filters
-            </Button>
-          </SettingsSection>
+          <div className="h-[1px] bg-line/60 mt-1" />
 
-          <SettingsSection
-            title="Keyboard Shortcuts"
-            description="Desktop-style shortcuts for common monitoring workflows."
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full justify-between mt-1 text-xs h-8"
+            onClick={openAdvancedSettings}
           >
-            <div className="grid gap-2">
-              {SHORTCUTS.map((shortcut) => (
-                <div
-                  key={shortcut.action}
-                  className="flex items-center justify-between rounded-lg border border-line bg-ink-900 px-3 py-2"
-                >
-                  <span className="text-sm text-readable">{shortcut.label}</span>
-                  <kbd className="rounded border border-line bg-ink-950 px-2 py-1 font-mono text-[11px] text-muted">
-                    {shortcut.keys}
-                  </kbd>
-                </div>
-              ))}
-            </div>
-          </SettingsSection>
+            Advanced Settings...
+            <ChevronLeft size={13} className="rotate-180 text-muted" />
+          </Button>
         </div>
       </aside>
     </div>
   );
 };
 
-interface SettingsSectionProps {
+export const AdvancedSettingsPanel = (): JSX.Element => {
+  const [activeSection, setActiveSection] = useState<AdvancedSettingsSection>('general');
+  const [shortcutSearch, setShortcutSearch] = useState('');
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  const preferences = useFileMonitorStore((state) => state.preferences);
+  const recentSources = useFileMonitorStore((state) => state.recentSources);
+  const searchHistory = useFileMonitorStore((state) => state.searchHistory);
+
+  const closeAdvancedSettings = useSettingsStore((state) => state.closeAdvancedSettings);
+  const toggleSidebarVisibility = useFileMonitorStore((state) => state.toggleSidebarVisibility);
+  const toggleExplorerVisibility = useFileMonitorStore((state) => state.toggleExplorerVisibility);
+  const toggleLogViewerExpanded = useFileMonitorStore((state) => state.toggleLogViewerExpanded);
+  const toggleAutoScroll = useFileMonitorStore((state) => state.toggleAutoScroll);
+  const toggleLineWrap = useFileMonitorStore((state) => state.toggleLineWrap);
+  const toggleLineNumbers = useFileMonitorStore((state) => state.toggleLineNumbers);
+  const toggleFilterToMatches = useFileMonitorStore((state) => state.toggleFilterToMatches);
+  const toggleCompactMode = useFileMonitorStore((state) => state.toggleCompactMode);
+  const toggleCollapseRepeatedLogs = useFileMonitorStore(
+    (state) => state.toggleCollapseRepeatedLogs,
+  );
+  const resetLogFilters = useFileMonitorStore((state) => state.resetLogFilters);
+  const clearWorkspaceHistory = useFileMonitorStore((state) => state.clearWorkspaceHistory);
+  const exportWorkspacePreferences = useFileMonitorStore(
+    (state) => state.exportWorkspacePreferences,
+  );
+  const importWorkspacePreferences = useFileMonitorStore(
+    (state) => state.importWorkspacePreferences,
+  );
+  const reloadApplicationWindow = useFileMonitorStore((state) => state.reloadApplicationWindow);
+
+  const filteredShortcuts = useMemo(() => {
+    const query = shortcutSearch.trim().toLocaleLowerCase();
+    if (!query) return SHORTCUTS;
+    return SHORTCUTS.filter(
+      (shortcut) =>
+        shortcut.label.toLocaleLowerCase().includes(query) ||
+        shortcut.keys.toLocaleLowerCase().includes(query),
+    );
+  }, [shortcutSearch]);
+
+  const handleExportPreferences = async (): Promise<void> => {
+    await navigator.clipboard.writeText(exportWorkspacePreferences());
+  };
+
+  const handleImportPreferences = async (file: File): Promise<void> => {
+    const rawValue = await file.text();
+    importWorkspacePreferences(rawValue);
+  };
+
+  return (
+    <div className="flex-1 min-h-0 flex bg-ink-950 text-readable border-t border-line">
+      {/* Left Sidebar */}
+      <aside className="w-52 shrink-0 border-r border-line bg-panel/30 flex flex-col justify-between py-4">
+        <div className="space-y-4">
+          <div className="px-4 pb-2 border-b border-line/40">
+            <h2 className="text-[10px] font-bold uppercase tracking-wider text-muted">
+              Advanced settings
+            </h2>
+          </div>
+          <nav className="px-2 space-y-1">
+            {advancedSettingsSections.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                className={[
+                  'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-xs font-medium transition outline-none',
+                  activeSection === section.id
+                    ? 'bg-accent-soft text-readable font-semibold'
+                    : 'text-muted hover:bg-ink-900 hover:text-readable',
+                ].join(' ')}
+                onClick={() => setActiveSection(section.id)}
+              >
+                <section.icon
+                  size={14}
+                  className={activeSection === section.id ? 'text-accent' : 'text-muted'}
+                />
+                {section.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+        <div className="px-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-xs h-8"
+            onClick={closeAdvancedSettings}
+          >
+            <ChevronLeft size={14} />
+            Back to Workspace
+          </Button>
+        </div>
+      </aside>
+
+      {/* Main Settings Page content area */}
+      <section className="flex-1 min-h-0 overflow-y-auto px-8 py-6">
+        <div className="max-w-2xl space-y-6">
+          {activeSection === 'general' && (
+            <SettingsWorkspaceSection
+              title="General"
+              description="Application-level controls and runtime configuration."
+            >
+              <div className="flex flex-col gap-4">
+                <p className="text-xs text-muted leading-relaxed">
+                  Perform a hard reload of the desktop runtime system to flush memory pools and
+                  reset process bindings.
+                </p>
+                <Button
+                  variant="secondary"
+                  className="w-44 justify-start text-xs h-8"
+                  onClick={() => {
+                    void reloadApplicationWindow();
+                  }}
+                >
+                  <RefreshCw size={13} className="mr-2 animate-spin-hover" />
+                  Reload Window
+                </Button>
+              </div>
+            </SettingsWorkspaceSection>
+          )}
+
+          {activeSection === 'viewer' && (
+            <SettingsWorkspaceSection
+              title="Viewer Preferences"
+              description="Reading defaults and virtualized console line structures."
+            >
+              <div className="grid gap-3">
+                <SettingRow
+                  title="Auto-scroll to bottom"
+                  description="Follow live log lines instantly on file appends"
+                  active={preferences.autoScroll}
+                  onToggle={toggleAutoScroll}
+                />
+                <SettingRow
+                  title="Line wrapping"
+                  description="Wrap long statements within the editor boundary"
+                  active={preferences.lineWrap}
+                  onToggle={toggleLineWrap}
+                />
+                <SettingRow
+                  title="Line numbers"
+                  description="Display persistent index counts alongside each line"
+                  active={preferences.showLineNumbers}
+                  onToggle={toggleLineNumbers}
+                />
+                <SettingRow
+                  title="Compact mode spacing"
+                  description="Reclaim row heights for higher volume densities"
+                  active={preferences.compactMode}
+                  onToggle={toggleCompactMode}
+                />
+                <SettingRow
+                  title="Collapse consecutive duplicate rows"
+                  description="Automatically identify and group repetitive warning bursts"
+                  active={preferences.collapseRepeatedLogs}
+                  onToggle={toggleCollapseRepeatedLogs}
+                />
+              </div>
+            </SettingsWorkspaceSection>
+          )}
+
+          {activeSection === 'filters' && (
+            <SettingsWorkspaceSection
+              title="Default Filters & Index Rules"
+              description="Customize viewport match requirements and clear custom severe masks."
+            >
+              <div className="space-y-4">
+                <SettingRow
+                  title="Filter to matching entries"
+                  description="Hide all lines that do not match the active search filter query"
+                  active={preferences.filterToMatches}
+                  onToggle={toggleFilterToMatches}
+                />
+                <div className="h-[1px] bg-line my-2" />
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-readable">Workspace Reset Actions</h4>
+                  <Button
+                    variant="danger"
+                    className="w-52 justify-start text-xs h-8"
+                    onClick={resetLogFilters}
+                  >
+                    <Trash2 size={13} className="mr-2" />
+                    Reset All Log Filters
+                  </Button>
+                </div>
+              </div>
+            </SettingsWorkspaceSection>
+          )}
+
+          {activeSection === 'workspace' && (
+            <SettingsWorkspaceSection
+              title="Workspace Config"
+              description="Sidepanel indicators, database sizes, and workspace synchronization."
+            >
+              <div className="space-y-4">
+                <div className="grid gap-3">
+                  <SettingRow
+                    title="Source rail visibility"
+                    description="Show the recent logs activity bar and watcher listings"
+                    active={useFileMonitorStore.getState().isSidebarVisible}
+                    onToggle={toggleSidebarVisibility}
+                  />
+                  <SettingRow
+                    title="File explorer tree visibility"
+                    description="Show or hide the workspace sidebar tree structure"
+                    active={useFileMonitorStore.getState().isExplorerVisible}
+                    onToggle={toggleExplorerVisibility}
+                  />
+                  <SettingRow
+                    title="Full-screen log focus view"
+                    description="Temporarily expand the viewport and cover side panels"
+                    active={useFileMonitorStore.getState().isLogViewerExpanded}
+                    onToggle={toggleLogViewerExpanded}
+                  />
+                </div>
+
+                <div className="h-[1px] bg-line my-2" />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <WorkspaceStat
+                    label="Recent logs index count"
+                    value={recentSources.length.toString()}
+                  />
+                  <WorkspaceStat
+                    label="Saved search history"
+                    value={searchHistory.length.toString()}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <h4 className="text-xs font-semibold text-readable">Configuration JSON</h4>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        void handleExportPreferences();
+                      }}
+                    >
+                      <Database size={13} className="mr-2" />
+                      Copy JSON to Clipboard
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => importInputRef.current?.click()}
+                    >
+                      <Upload size={13} className="mr-2" />
+                      Import JSON File
+                    </Button>
+                  </div>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        void handleImportPreferences(file);
+                      }
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                </div>
+
+                <div className="h-[1px] bg-line my-2" />
+
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-readable">Dangerous Actions</h4>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    className="h-8"
+                    onClick={clearWorkspaceHistory}
+                  >
+                    <Trash2 size={13} className="mr-2" />
+                    Clear Workspace Index History
+                  </Button>
+                </div>
+              </div>
+            </SettingsWorkspaceSection>
+          )}
+
+          {activeSection === 'shortcuts' && (
+            <SettingsWorkspaceSection
+              title="Keyboard Shortcut Registry"
+              description="Command combinations mapped to application actions."
+            >
+              <div className="space-y-4">
+                <label className="relative block">
+                  <Search
+                    size={14}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle"
+                  />
+                  <input
+                    value={shortcutSearch}
+                    onChange={(event) => {
+                      setShortcutSearch(event.target.value);
+                    }}
+                    placeholder="Search shortcuts"
+                    className="h-8.5 w-full rounded-md border border-line bg-panel px-9 text-xs text-readable outline-none transition placeholder:text-subtle focus:border-accent"
+                  />
+                </label>
+                <div className="grid gap-2 max-h-96 overflow-y-auto pr-1">
+                  {filteredShortcuts.map((shortcut) => (
+                    <div
+                      key={shortcut.action}
+                      className="flex items-center justify-between rounded-md border border-line bg-panel px-3 py-2 text-xs"
+                    >
+                      <span className="text-readable font-medium">{shortcut.label}</span>
+                      <kbd className="rounded border border-line bg-ink-950 px-2 py-0.5 font-mono text-[10px] text-muted">
+                        {shortcut.keys}
+                      </kbd>
+                    </div>
+                  ))}
+                  {filteredShortcuts.length === 0 && (
+                    <div className="text-center py-6 text-xs text-muted">
+                      No keyboard shortcuts match your search.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </SettingsWorkspaceSection>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};
+
+const advancedSettingsSections: Array<{
+  id: AdvancedSettingsSection;
+  label: string;
+  icon: typeof Settings2;
+}> = [
+  { id: 'general', label: 'General', icon: Settings2 },
+  { id: 'viewer', label: 'Viewer Defaults', icon: SlidersHorizontal },
+  { id: 'filters', label: 'Default Filters', icon: Search },
+  { id: 'workspace', label: 'Workspace Config', icon: LayoutPanelLeft },
+  { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
+];
+
+interface SettingsWorkspaceSectionProps {
   title: string;
   description: string;
   children: ReactNode;
 }
 
-const SettingsSection = ({ title, description, children }: SettingsSectionProps): JSX.Element => {
+const SettingsWorkspaceSection = ({
+  title,
+  description,
+  children,
+}: SettingsWorkspaceSectionProps): JSX.Element => {
   return (
-    <section className="rounded-xl border border-line bg-ink-950/40 p-4">
-      <div className="mb-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-readable">{title}</h3>
-          <Badge>{title === 'Appearance' ? 'UI' : 'Config'}</Badge>
-        </div>
-        <p className="mt-1 text-xs leading-5 text-muted">{description}</p>
+    <section className="rounded-lg border border-line bg-panel p-5 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-readable">{title}</h3>
+        <p className="mt-1 text-xs leading-normal text-muted font-normal">{description}</p>
       </div>
-      <div className="space-y-2">{children}</div>
+      <div className="space-y-3">{children}</div>
     </section>
   );
 };
@@ -214,16 +577,16 @@ const ThemeButton = ({ label, mode, activeMode, onSelect }: ThemeButtonProps): J
     <button
       type="button"
       className={[
-        'flex h-20 flex-col items-center justify-center gap-2 rounded-lg border text-sm transition',
+        'flex h-12 flex-col items-center justify-center gap-1 rounded-md border text-xs transition outline-none cursor-pointer',
         isActive
           ? 'border-accent bg-accent-soft text-accent'
-          : 'border-line bg-ink-900 text-muted hover:border-line-strong hover:text-readable',
+          : 'border-line bg-panel text-muted hover:border-line-strong hover:text-readable',
       ].join(' ')}
       onClick={() => {
         onSelect(mode);
       }}
     >
-      {mode === 'light' ? <Sun size={18} /> : <Moon size={18} />}
+      {mode === 'light' ? <Sun size={14} /> : <Moon size={14} />}
       {label}
     </button>
   );
@@ -234,43 +597,50 @@ interface SettingRowProps {
   description: string;
   active: boolean;
   onToggle: () => void;
-  icon?: JSX.Element;
 }
 
-const SettingRow = ({
-  title,
-  description,
-  active,
-  onToggle,
-  icon,
-}: SettingRowProps): JSX.Element => {
+const SettingRow = ({ title, description, active, onToggle }: SettingRowProps): JSX.Element => {
   return (
     <button
       type="button"
-      className="flex w-full items-center justify-between gap-3 rounded-lg border border-line bg-ink-900 px-3 py-3 text-left transition hover:border-line-strong"
+      className="flex w-full items-center justify-between gap-3 rounded-md border border-line bg-panel px-3 py-2 text-left transition hover:border-line-strong outline-none"
       onClick={onToggle}
     >
-      <span className="flex min-w-0 items-center gap-3">
-        {icon && <span className="text-muted">{icon}</span>}
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-readable">{title}</span>
-          <span className="block truncate text-xs text-muted">{description}</span>
-        </span>
+      <span className="min-w-0">
+        <span className="block text-xs font-semibold text-readable">{title}</span>
+        <span className="block text-[11px] text-muted font-normal mt-0.5">{description}</span>
       </span>
       <span
         className={[
-          'flex h-6 w-11 shrink-0 items-center rounded-full border px-0.5 transition',
+          'flex h-4 w-7 shrink-0 items-center rounded-full border px-0.5 transition',
           active
             ? 'justify-end border-success/50 bg-success-soft'
             : 'justify-start border-line bg-ink-800',
         ].join(' ')}
       >
         <span
-          className={['h-4 w-4 rounded-full transition', active ? 'bg-success' : 'bg-subtle'].join(
-            ' ',
-          )}
+          className={[
+            'h-2.5 w-2.5 rounded-full transition',
+            active ? 'bg-success' : 'bg-subtle',
+          ].join(' ')}
         />
       </span>
     </button>
+  );
+};
+
+interface WorkspaceStatProps {
+  label: string;
+  value: string;
+}
+
+const WorkspaceStat = ({ label, value }: WorkspaceStatProps): JSX.Element => {
+  return (
+    <div className="rounded-md border border-line bg-panel px-3 py-2">
+      <div className="text-xs font-bold text-readable">{value}</div>
+      <div className="text-[10px] uppercase font-semibold text-subtle tracking-wider mt-0.5">
+        {label}
+      </div>
+    </div>
   );
 };

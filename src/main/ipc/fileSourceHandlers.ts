@@ -139,12 +139,25 @@ const validateReadFileRequest = (payload: unknown): ReadFileRequest => {
   const record = validateRecord(payload, 'read file request');
   const filePath = validatePath(record['filePath'], 'filePath');
   const maxBytes = record['maxBytes'];
+  const startOffset = record['startOffset'];
+  const endOffset = record['endOffset'];
 
   if (maxBytes !== undefined && typeof maxBytes !== 'number') {
     throw new IpcValidationError('INVALID_MAX_BYTES', 'maxBytes must be a number.');
   }
+  if (startOffset !== undefined && typeof startOffset !== 'number') {
+    throw new IpcValidationError('INVALID_START_OFFSET', 'startOffset must be a number.');
+  }
+  if (endOffset !== undefined && typeof endOffset !== 'number') {
+    throw new IpcValidationError('INVALID_END_OFFSET', 'endOffset must be a number.');
+  }
 
-  return typeof maxBytes === 'number' ? { filePath, maxBytes } : { filePath };
+  const req: ReadFileRequest = { filePath };
+  if (typeof maxBytes === 'number') req.maxBytes = maxBytes;
+  if (typeof startOffset === 'number') req.startOffset = startOffset;
+  if (typeof endOffset === 'number') req.endOffset = endOffset;
+
+  return req;
 };
 
 const validateWatchFileRequest = (payload: unknown): WatchFileRequest => {

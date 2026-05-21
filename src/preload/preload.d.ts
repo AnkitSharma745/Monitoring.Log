@@ -19,6 +19,9 @@ type RendererLogLevel = 'error' | 'warn' | 'info' | 'debug';
 export interface DesktopApi {
   app: {
     reloadWindow: () => Promise<void>;
+    minimizeWindow: () => Promise<void>;
+    toggleMaximizeWindow: () => Promise<void>;
+    closeWindow: () => Promise<void>;
   };
   files: {
     selectFiles: () => Promise<IpcResponse<FilePickerResult>>;

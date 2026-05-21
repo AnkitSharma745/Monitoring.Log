@@ -24,14 +24,24 @@ export class FileReaderService {
 
   public async readInitialContent(request: ReadFileRequest): Promise<FileContentResult> {
     const file = await createLogFileMetadata(request.filePath);
-    const maxBytes = this.normalizeMaxBytes(request.maxBytes);
-    const startOffset = Math.max(0, file.sizeBytes - maxBytes);
-    const readResult = await this.readRange(file.path, startOffset, file.sizeBytes);
+
+    let startOffset = request.startOffset;
+    let endOffset = request.endOffset;
+
+    if (startOffset === undefined || endOffset === undefined) {
+      const maxBytes = this.normalizeMaxBytes(request.maxBytes);
+      startOffset = Math.max(0, file.sizeBytes - maxBytes);
+      endOffset = file.sizeBytes;
+    }
+
+    const readResult = await this.readRange(file.path, startOffset, endOffset);
 
     this.logger.info('Read file content.', {
       filePath: file.path,
       bytesRead: readResult.bytesRead,
       truncatedHead: startOffset > 0,
+      startOffset,
+      endOffset,
     });
 
     return {

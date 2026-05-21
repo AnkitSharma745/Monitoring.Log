@@ -1,4 +1,5 @@
 import { useMemo, useState, type JSX } from 'react';
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Upload } from 'lucide-react';
 
 import { Badge } from '@renderer/components/ui/Badge';
 import { Tooltip } from '@renderer/components/ui/Tooltip';
@@ -20,6 +21,11 @@ export const FileExplorer = (): JSX.Element => {
   const selectFile = useFileMonitorStore((state) => state.selectFile);
   const startWatching = useFileMonitorStore((state) => state.startWatching);
   const stopWatching = useFileMonitorStore((state) => state.stopWatching);
+  const removeFile = useFileMonitorStore((state) => state.removeFile);
+  const removeDirectory = useFileMonitorStore((state) => state.removeDirectory);
+  const selectFilesFromDialog = useFileMonitorStore((state) => state.selectFilesFromDialog);
+  const selectDirectoryFromDialog = useFileMonitorStore((state) => state.selectDirectoryFromDialog);
+
   const files = useMemo(
     () => Object.values(filesByPath).sort((left, right) => left.path.localeCompare(right.path)),
     [filesByPath],
@@ -37,25 +43,52 @@ export const FileExplorer = (): JSX.Element => {
   };
 
   return (
-    <aside className="flex min-w-0 flex-col border-r border-line bg-ink-900/90">
-      <header className="flex h-14 items-center justify-between border-b border-line px-4">
-        <div>
-          <h2 className="text-sm font-semibold text-readable">File Explorer</h2>
-          <p className="text-xs text-muted">{files.length} discovered file(s)</p>
+    <aside className="flex min-w-0 flex-col border-r border-line bg-ink-900/90 h-full">
+      <header className="flex h-11 items-center justify-between border-b border-line px-3 gap-2 shrink-0">
+        <div className="min-w-0">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-readable truncate">
+            Explorer
+          </h2>
+          <p className="text-[10px] text-muted truncate">{files.length} sources</p>
         </div>
-        <Badge tone={watchedPaths.size > 0 ? 'success' : 'neutral'}>{watchedPaths.size} live</Badge>
+        <div className="flex items-center gap-1 shrink-0">
+          <Tooltip label="Add log files...">
+            <button
+              type="button"
+              className="flex h-6 w-6 items-center justify-center rounded text-subtle hover:bg-ink-800 hover:text-readable transition outline-none cursor-pointer border-none"
+              onClick={selectFilesFromDialog}
+            >
+              <Upload size={13} />
+            </button>
+          </Tooltip>
+          <Tooltip label="Open directory...">
+            <button
+              type="button"
+              className="flex h-6 w-6 items-center justify-center rounded text-subtle hover:bg-ink-800 hover:text-readable transition outline-none cursor-pointer border-none"
+              onClick={selectDirectoryFromDialog}
+            >
+              <FolderOpen size={13} />
+            </button>
+          </Tooltip>
+          <Badge
+            tone={watchedPaths.size > 0 ? 'success' : 'neutral'}
+            className="text-[9px] px-1 py-0.5 shrink-0 ml-0.5"
+          >
+            {watchedPaths.size} live
+          </Badge>
+        </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
+      <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
         {files.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-line bg-ink-950/60 p-4 text-sm leading-6 text-muted">
+          <div className="rounded-md border border-dashed border-line bg-ink-950/60 p-3 text-[11px] leading-5 text-muted">
             Select files or a directory to populate the explorer.
           </div>
         ) : (
           <>
             {looseFiles.length > 0 && (
               <section className="mb-4">
-                <div className="mb-2 px-2 text-[11px] font-bold uppercase text-subtle">
+                <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.08em] text-subtle">
                   Selected Files
                 </div>
                 {looseFiles.map((file) => (
@@ -67,6 +100,7 @@ export const FileExplorer = (): JSX.Element => {
                     isWatched={watchedPaths.has(file.path)}
                     onSelectFile={selectFile}
                     onToggleWatch={toggleWatch}
+                    onRemoveFile={removeFile}
                   />
                 ))}
               </section>
@@ -81,6 +115,8 @@ export const FileExplorer = (): JSX.Element => {
                 watchedPaths={watchedPaths}
                 onSelectFile={selectFile}
                 onToggleWatch={toggleWatch}
+                onRemoveDirectory={removeDirectory}
+                onRemoveFile={removeFile}
               />
             ))}
           </>
@@ -97,6 +133,8 @@ interface DirectoryNodeProps {
   watchedPaths: ReadonlySet<string>;
   onSelectFile: (filePath: string) => Promise<void>;
   onToggleWatch: (filePath: string) => void;
+  onRemoveDirectory: (dirPath: string) => void;
+  onRemoveFile: (filePath: string) => void;
 }
 
 const DirectoryNode = ({
@@ -106,26 +144,55 @@ const DirectoryNode = ({
   watchedPaths,
   onSelectFile,
   onToggleWatch,
+  onRemoveDirectory,
+  onRemoveFile,
 }: DirectoryNodeProps): JSX.Element => {
   const [expanded, setExpanded] = useState(true);
 
   return (
     <section>
-      <button
-        type="button"
-        className="grid h-8 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 text-left text-sm text-muted transition hover:bg-ink-800 hover:text-readable"
+      <div
+        className="group grid h-7 w-full grid-cols-[14px_14px_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md px-2 text-left text-[12px] text-muted transition hover:bg-ink-800 hover:text-readable cursor-pointer"
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         title={node.path}
         onClick={() => {
           setExpanded((current) => !current);
         }}
       >
-        <span className="font-mono text-xs">{expanded ? 'v' : '>'}</span>
-        <span className="truncate">[D] {node.name}</span>
-        <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] text-subtle">
-          {node.supportedFileCount}
+        <span className="flex items-center justify-center text-subtle select-none">
+          {expanded ? (
+            <ChevronDown size={12} className="stroke-[2.5]" />
+          ) : (
+            <ChevronRight size={12} className="stroke-[2.5]" />
+          )}
         </span>
-      </button>
+        <span className="flex items-center justify-center text-accent select-none">
+          {expanded ? (
+            <FolderOpen size={13} className="fill-accent/10" />
+          ) : (
+            <Folder size={13} className="fill-accent/10" />
+          )}
+        </span>
+        <span className="truncate select-none font-medium text-readable">{node.name}</span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="rounded bg-ink-850 border border-line/30 px-1.5 py-0.5 text-[9px] font-mono text-subtle">
+            {node.supportedFileCount}
+          </span>
+          {depth === 0 && (
+            <button
+              type="button"
+              className="flex h-5 w-5 items-center justify-center rounded text-subtle opacity-0 transition hover:bg-ink-700 hover:text-danger group-hover:opacity-100 focus:opacity-100"
+              title="Remove directory from workspace"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveDirectory(node.path);
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
 
       {expanded &&
         node.children.map((child) => (
@@ -137,6 +204,8 @@ const DirectoryNode = ({
             watchedPaths={watchedPaths}
             onSelectFile={onSelectFile}
             onToggleWatch={onToggleWatch}
+            onRemoveDirectory={onRemoveDirectory}
+            onRemoveFile={onRemoveFile}
           />
         ))}
     </section>
@@ -150,6 +219,8 @@ interface TreeNodeProps {
   watchedPaths: ReadonlySet<string>;
   onSelectFile: (filePath: string) => Promise<void>;
   onToggleWatch: (filePath: string) => void;
+  onRemoveDirectory: (dirPath: string) => void;
+  onRemoveFile: (filePath: string) => void;
 }
 
 const TreeNode = ({
@@ -159,6 +230,8 @@ const TreeNode = ({
   watchedPaths,
   onSelectFile,
   onToggleWatch,
+  onRemoveDirectory,
+  onRemoveFile,
 }: TreeNodeProps): JSX.Element => {
   if (node.kind === 'directory') {
     return (
@@ -169,6 +242,8 @@ const TreeNode = ({
         watchedPaths={watchedPaths}
         onSelectFile={onSelectFile}
         onToggleWatch={onToggleWatch}
+        onRemoveDirectory={onRemoveDirectory}
+        onRemoveFile={onRemoveFile}
       />
     );
   }
@@ -181,6 +256,7 @@ const TreeNode = ({
       isWatched={watchedPaths.has(node.path)}
       onSelectFile={onSelectFile}
       onToggleWatch={onToggleWatch}
+      onRemoveFile={onRemoveFile}
     />
   );
 };
@@ -192,6 +268,7 @@ interface FileRowProps {
   isWatched: boolean;
   onSelectFile: (filePath: string) => Promise<void>;
   onToggleWatch: (filePath: string) => void;
+  onRemoveFile: (filePath: string) => void;
 }
 
 const FileRow = ({
@@ -201,55 +278,79 @@ const FileRow = ({
   isWatched,
   onSelectFile,
   onToggleWatch,
+  onRemoveFile,
 }: FileRowProps): JSX.Element => {
   return (
     <div
       className={[
-        'group grid min-h-9 grid-cols-[minmax(0,1fr)_54px] items-center gap-2 rounded-md pr-2 transition',
-        isSelected ? 'bg-accent-soft text-readable shadow-glow' : 'text-muted hover:bg-ink-800',
+        'group grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md pr-2 transition',
+        isSelected ? 'bg-accent-soft text-readable shadow-sm' : 'text-muted hover:bg-ink-800',
       ]
         .filter(Boolean)
         .join(' ')}
-      style={{ paddingLeft: `${8 + depth * 14}px` }}
+      style={{ paddingLeft: `${8 + depth * 14 + 14}px` }}
     >
       <button
         type="button"
-        className="min-w-0 text-left"
+        className="min-w-0 text-left py-1"
         title={file.path}
         onClick={() => {
           void onSelectFile(file.path);
         }}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span
+          <FileText
+            size={13}
             className={[
-              'h-2 w-2 shrink-0 rounded-full',
-              isWatched ? 'bg-success shadow-[0_0_12px_rgb(66_211_146/0.65)]' : 'bg-subtle',
+              'shrink-0',
+              isSelected
+                ? 'text-accent'
+                : 'text-subtle group-hover:text-readable transition-colors',
             ].join(' ')}
           />
-          <span className="truncate text-sm">[F] {file.name}</span>
+          <span className="truncate text-[12px] font-medium">{file.name}</span>
+          {isWatched && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-success shadow-[0_0_8px_rgba(66,211,146,0.8)] animate-pulse"
+              title="Watching this file live"
+            />
+          )}
         </span>
-        <span className="ml-4 block truncate text-[11px] text-subtle">
+        <span className="ml-5 block truncate text-[10px] text-subtle font-mono">
           {formatBytes(file.sizeBytes)}
         </span>
       </button>
 
-      <Tooltip label={isWatched ? 'Stop watching file' : 'Start watching file'}>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Tooltip label={isWatched ? 'Stop watching file' : 'Start watching file'}>
+          <button
+            type="button"
+            className={[
+              'h-5 rounded border px-1.5 text-[10px] font-semibold transition',
+              isWatched
+                ? 'border-success/50 bg-success-soft text-success'
+                : 'border-line bg-ink-900 text-subtle hover:border-accent hover:text-accent',
+            ].join(' ')}
+            onClick={() => {
+              onToggleWatch(file.path);
+            }}
+          >
+            {isWatched ? 'Live' : 'Watch'}
+          </button>
+        </Tooltip>
+
         <button
           type="button"
-          className={[
-            'h-6 rounded border px-2 text-[11px] font-semibold transition',
-            isWatched
-              ? 'border-success/50 bg-success-soft text-success'
-              : 'border-line bg-ink-900 text-subtle hover:border-accent hover:text-accent',
-          ].join(' ')}
-          onClick={() => {
-            onToggleWatch(file.path);
+          className="flex h-5 w-5 items-center justify-center rounded text-subtle opacity-0 transition hover:bg-ink-700 hover:text-danger group-hover:opacity-100 focus:opacity-100"
+          title="Remove file from workspace"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemoveFile(file.path);
           }}
         >
-          {isWatched ? 'Live' : 'Watch'}
+          ✕
         </button>
-      </Tooltip>
+      </div>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import { useEffect, type JSX } from 'react';
-
 import { AppLayout } from '@renderer/features/layout/components/AppLayout';
 import { useKeyboardShortcuts } from '@renderer/features/shortcuts/useKeyboardShortcuts';
+import { initializeWorkbench } from '@renderer/services/workbenchServices';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 
 function App(): JSX.Element {
@@ -10,6 +10,7 @@ function App(): JSX.Element {
   useKeyboardShortcuts();
 
   useEffect(() => {
+    initializeWorkbench();
     restoreWorkspace();
   }, [restoreWorkspace]);
 

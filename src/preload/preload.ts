@@ -35,6 +35,12 @@ const desktop = {
   app: {
     reloadWindow: (): Promise<void> =>
       ipcRenderer.invoke(APP_IPC_CHANNELS.reloadWindow) as Promise<void>,
+    minimizeWindow: (): Promise<void> =>
+      ipcRenderer.invoke(APP_IPC_CHANNELS.minimizeWindow) as Promise<void>,
+    toggleMaximizeWindow: (): Promise<void> =>
+      ipcRenderer.invoke(APP_IPC_CHANNELS.toggleMaximizeWindow) as Promise<void>,
+    closeWindow: (): Promise<void> =>
+      ipcRenderer.invoke(APP_IPC_CHANNELS.closeWindow) as Promise<void>,
   },
   files: {
     selectFiles: (): Promise<IpcResponse<FilePickerResult>> =>

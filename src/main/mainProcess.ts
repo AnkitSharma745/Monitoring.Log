@@ -49,7 +49,10 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
+    minWidth: 920,
+    minHeight: 560,
     show: false,
+    frame: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),
@@ -119,6 +122,28 @@ if (!gotTheLock) {
         return undefined;
       });
 
+      ipcMain.handle(APP_IPC_CHANNELS.minimizeWindow, (event) => {
+        BrowserWindow.fromWebContents(event.sender)?.minimize();
+      });
+
+      ipcMain.handle(APP_IPC_CHANNELS.toggleMaximizeWindow, (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+
+        if (!window) {
+          return;
+        }
+
+        if (window.isMaximized()) {
+          window.unmaximize();
+        } else {
+          window.maximize();
+        }
+      });
+
+      ipcMain.handle(APP_IPC_CHANNELS.closeWindow, (event) => {
+        BrowserWindow.fromWebContents(event.sender)?.close();
+      });
+
       registerFileSourceIpcHandlers(
         {
           dialogs: fileDialogs,
@@ -142,9 +167,7 @@ if (!gotTheLock) {
 }
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });
 
 app.on('before-quit', () => {

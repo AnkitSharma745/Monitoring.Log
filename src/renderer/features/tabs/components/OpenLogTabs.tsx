@@ -19,7 +19,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
   }
 
   return (
-    <div className="flex min-h-10 items-end gap-1 overflow-x-auto border-b border-line bg-ink-900 px-2 pt-2">
+    <div className="no-scrollbar flex min-h-10 items-end gap-1 overflow-x-auto border-b border-line bg-ink-900 px-2 pt-2">
       {openTabs.map((tab) => {
         const file = filesByPath[tab.filePath];
         const isSelected = selectedFilePath === tab.filePath;
@@ -55,10 +55,16 @@ export const OpenLogTabs = (): JSX.Element | null => {
               )}
             </button>
 
+            {/* Pin Tab Button */}
             <Tooltip label={tab.pinned ? 'Unpin tab' : 'Pin tab'}>
               <button
                 type="button"
-                className="text-subtle hover:text-accent"
+                className={[
+                  'text-subtle hover:text-accent transition-opacity focus:opacity-100',
+                  tab.pinned
+                    ? 'opacity-80'
+                    : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                ].join(' ')}
                 onClick={() => {
                   pinTab(tab.filePath);
                 }}
@@ -67,18 +73,20 @@ export const OpenLogTabs = (): JSX.Element | null => {
               </button>
             </Tooltip>
 
-            <Tooltip label="Close tab" shortcut="Ctrl/Cmd+W">
-              <button
-                type="button"
-                className="text-subtle hover:text-danger disabled:opacity-40"
-                disabled={tab.pinned}
-                onClick={() => {
-                  closeTab(tab.filePath);
-                }}
-              >
-                <X size={13} />
-              </button>
-            </Tooltip>
+            {/* Close Tab Button */}
+            {!tab.pinned && (
+              <Tooltip label="Close tab" shortcut="Ctrl/Cmd+W">
+                <button
+                  type="button"
+                  className="text-subtle hover:text-danger opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                  onClick={() => {
+                    closeTab(tab.filePath);
+                  }}
+                >
+                  <X size={13} />
+                </button>
+              </Tooltip>
+            )}
           </div>
         );
       })}
