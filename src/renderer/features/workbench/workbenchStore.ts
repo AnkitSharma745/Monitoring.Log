@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type WorkbenchSidePanel = 'explorer' | 'search' | 'watchers' | 'investigations' | 'timeline';
+export type WorkbenchSidePanel = 'explorer' | 'search' | 'watchers' | 'investigations' | 'timeline' | 'knowledge';
 export type WorkbenchBottomPanel =
   | 'problems'
   | 'activity'

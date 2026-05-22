@@ -8,6 +8,7 @@ import {
   Search,
   Settings,
   ShieldAlert,
+  BookOpen,
 } from 'lucide-react';
 
 import { Tooltip } from '@renderer/components/ui/Tooltip';
@@ -29,9 +30,11 @@ const activityItems: ActivityItem[] = [
   { id: 'watchers', label: 'Watchers', icon: RadioTower },
   { id: 'investigations', label: 'Investigations', icon: Bug },
   { id: 'timeline', label: 'Timeline', icon: Clock3 },
+  { id: 'knowledge', label: 'Knowledge Base', icon: BookOpen },
   { id: 'aiEvidence', label: 'AI Evidence', icon: Bot },
   { id: 'incidents', label: 'Incidents', icon: ShieldAlert },
 ];
+
 
 const settingsItem: ActivityItem = {
   id: 'settings',
@@ -119,6 +122,7 @@ const isWorkbenchSidePanel = (value: ActivityItem['id']): value is WorkbenchSide
     value === 'search' ||
     value === 'watchers' ||
     value === 'investigations' ||
-    value === 'timeline'
+    value === 'timeline' ||
+    value === 'knowledge'
   );
 };

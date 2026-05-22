@@ -7,6 +7,11 @@ import type {
 } from '@shared/contracts/investigations';
 import type { LogChunk, StructuredLogEntry, VisibleLogWindow } from '@shared/contracts/logs';
 import type { SearchQuery, SearchResult } from '@shared/contracts/search';
+import type {
+  IngestedDocument,
+  KnowledgeQueryResult,
+  TroubleshooterMatch,
+} from '@shared/contracts/knowledge';
 
 export type EngineWorkerRequest =
   | {
@@ -82,7 +87,26 @@ export type EngineWorkerRequest =
       type: 'validateDomainRules';
       requestId: string;
       sourceId: string;
+    }
+  // Phase 5 Ingestion and Knowledge retrieval
+  | {
+      type: 'ingestDocument';
+      requestId: string;
+      name: string;
+      content: string;
+      filePath?: string;
+    }
+  | {
+      type: 'queryKnowledgeBase';
+      requestId: string;
+      query: string;
+    }
+  | {
+      type: 'getTroubleshooterMatches';
+      requestId: string;
+      sourceId: string;
     };
+
 
 export type EngineWorkerResponse =
   | {
@@ -149,8 +173,25 @@ export type EngineWorkerResponse =
       requestId: string;
       results: DomainRuleResult[];
     }
+  // Phase 5 Ingestion and Knowledge retrieval responses
+  | {
+      type: 'ingestDocument:done';
+      requestId: string;
+      document: IngestedDocument;
+    }
+  | {
+      type: 'queryKnowledgeBase:done';
+      requestId: string;
+      results: KnowledgeQueryResult[];
+    }
+  | {
+      type: 'getTroubleshooterMatches:done';
+      requestId: string;
+      matches: TroubleshooterMatch[];
+    }
   | {
       type: 'error';
       requestId: string;
       message: string;
     };
+

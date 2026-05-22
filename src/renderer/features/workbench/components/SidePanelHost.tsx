@@ -12,6 +12,7 @@ const panelTitles: Record<WorkbenchSidePanel, string> = {
   watchers: 'Watchers',
   investigations: 'Investigations',
   timeline: 'Timeline',
+  knowledge: 'Knowledge Base',
 };
 
 export const SidePanelHost = (): JSX.Element | null => {

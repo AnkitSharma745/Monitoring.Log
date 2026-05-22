@@ -6,3 +6,5 @@ export type * from './investigations';
 export type * from './ipc';
 export type * from './logs';
 export type * from './search';
+export type * from './knowledge';
+

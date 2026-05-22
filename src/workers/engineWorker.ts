@@ -3,8 +3,12 @@ import { InMemoryLogIndex } from '@core/indexing/logIndex';
 import { OperationalCorrelationEngine } from '@core/investigation/correlationEngine';
 import { parseChunk } from '@core/parsing/parserEngine';
 import type { EngineWorkerRequest, EngineWorkerResponse } from './workerProtocol';
+import { DocumentEngine } from '@core/knowledge/documentEngine';
+import type { IngestedDocument } from '@shared/contracts/knowledge';
 
 const logIndex = new InMemoryLogIndex();
+const ingestedDocuments: IngestedDocument[] = [];
+
 
 export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineWorkerResponse => {
   try {
@@ -110,10 +114,47 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
 
     if (request.type === 'validateDomainRules') {
       const entries = logIndex.getEntries(request.sourceId);
+      const customRules = ingestedDocuments.flatMap((d) => d.rules);
       return {
         type: 'validateDomainRules:done',
         requestId: request.requestId,
-        results: OperationalCorrelationEngine.validateDomainRules(request.sourceId, entries),
+        results: OperationalCorrelationEngine.validateDomainRules(request.sourceId, entries, customRules),
+      };
+    }
+
+    if (request.type === 'ingestDocument') {
+      const doc = DocumentEngine.ingestDocument(request.name, request.content, request.filePath);
+      // Avoid duplicate documents by name/filepath if imported again
+      const existingIdx = ingestedDocuments.findIndex((d) => d.name === request.name);
+      if (existingIdx !== -1) {
+        ingestedDocuments[existingIdx] = doc;
+      } else {
+        ingestedDocuments.push(doc);
+      }
+      return {
+        type: 'ingestDocument:done',
+        requestId: request.requestId,
+        document: doc,
+      };
+    }
+
+    if (request.type === 'queryKnowledgeBase') {
+      const results = DocumentEngine.searchKnowledgeBase(ingestedDocuments, request.query);
+      return {
+        type: 'queryKnowledgeBase:done',
+        requestId: request.requestId,
+        results,
+      };
+    }
+
+    if (request.type === 'getTroubleshooterMatches') {
+      const entries = logIndex.getEntries(request.sourceId);
+      const symptoms = ingestedDocuments.flatMap((d) => d.symptoms);
+      const matches = DocumentEngine.matchTroubleshootingSymptoms(entries, symptoms);
+      return {
+        type: 'getTroubleshooterMatches:done',
+        requestId: request.requestId,
+        matches,
       };
     }
 

@@ -7,6 +7,7 @@ import { DiagnosticsPanel } from '../features/workbench/components/DiagnosticsPa
 import { InvestigationsPanel } from '../features/workbench/components/InvestigationsPanel';
 import { SearchPanel } from '../features/workbench/components/SearchPanel';
 import { TimelinePanel } from '../features/workbench/components/TimelinePanel';
+import { KnowledgePanel } from '../features/workbench/components/KnowledgePanel';
 import { WorkbenchPlaceholder } from '../features/workbench/components/WorkbenchPlaceholder';
 import {
   useWorkbenchStore,
@@ -16,6 +17,7 @@ import {
 import { useDiagnosticsStore } from '../stores/diagnosticsStore';
 import { useFileMonitorStore } from '../stores/fileMonitorStore';
 import { useOverlayStore } from '../stores/overlayStore';
+
 
 // ==========================================
 // 1. VIEW REGISTRY SERVICE
@@ -267,6 +269,7 @@ export const initializeWorkbench = (): void => {
   ViewRegistryService.registerSidePanel('watchers', 'Watchers', Sidebar);
   ViewRegistryService.registerSidePanel('investigations', 'Investigations', InvestigationsPanel);
   ViewRegistryService.registerSidePanel('timeline', 'Timeline', TimelinePanel);
+  ViewRegistryService.registerSidePanel('knowledge', 'Knowledge Base', KnowledgePanel);
 
   // Pre-register all Bottom Panels
   ViewRegistryService.registerBottomPanel('problems', 'Problems', () =>
