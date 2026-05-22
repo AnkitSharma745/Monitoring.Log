@@ -60,17 +60,29 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
         return;
       }
 
+      let rAFId: number | null = null;
+
       const measure = (): void => {
-        if (containerRef.current) {
-          setContainerHeight(containerRef.current.clientHeight);
+        if (rAFId !== null) {
+          cancelAnimationFrame(rAFId);
         }
+        rAFId = requestAnimationFrame(() => {
+          if (containerRef.current) {
+            setContainerHeight(containerRef.current.clientHeight);
+          }
+        });
       };
 
       measure();
       const observer = new ResizeObserver(measure);
       observer.observe(containerRef.current);
 
-      return () => observer.disconnect();
+      return () => {
+        observer.disconnect();
+        if (rAFId !== null) {
+          cancelAnimationFrame(rAFId);
+        }
+      };
     }, []);
 
     const targetLineRowIndex = useViewerStore((state) => state.targetLineRowIndexByPath[filePath] ?? null);

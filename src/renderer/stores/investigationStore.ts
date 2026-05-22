@@ -8,6 +8,9 @@ import type {
   SavedFilter,
   InvestigationSnapshot,
 } from '@shared/contracts/investigations';
+import { useSearchStore } from './searchStore';
+import { useViewerStore } from './viewerStore';
+import { useFileMonitorStore } from './fileMonitorStore';
 
 interface InvestigationStoreState {
   activeInvestigationId: string | null;
@@ -243,18 +246,28 @@ export const useInvestigationStore = create<InvestigationStoreState>((set, get) 
 
   takeSnapshot: (title, activeSourceId): void => {
     const activeId = get().ensureActiveInvestigation();
+    const searchState = useSearchStore.getState();
+    const viewerState = useViewerStore.getState();
     set((state) => {
       const inv = state.investigationsById[activeId];
       if (!inv) return {};
 
+      const sourceId = activeSourceId || viewerState.selectedFilePath;
       const newSnapshot: InvestigationSnapshot = {
         id: crypto.randomUUID(),
         title,
         timestamp: new Date().toISOString(),
-        activeSourceId,
+        activeSourceId: sourceId,
         savedFilters: [...inv.savedFilters],
         bookmarks: [...inv.bookmarks],
         notes: inv.notes,
+        searchQuery: searchState.searchQuery,
+        searchOptions: {
+          isRegex: searchState.isRegex,
+          isCaseSensitive: searchState.isCaseSensitive,
+          isWholeWord: searchState.isWholeWord,
+        },
+        focusedLineNumber: viewerState.selectedLineEntry?.lineNumber ?? null,
       };
 
       return {
@@ -278,6 +291,25 @@ export const useInvestigationStore = create<InvestigationStoreState>((set, get) 
 
       const snap = inv.snapshots.find((s) => s.id === snapshotId);
       if (!snap) return {};
+
+      // Restore search state
+      if (snap.searchQuery !== undefined) {
+        useSearchStore.setState({
+          searchQuery: snap.searchQuery,
+          isRegex: snap.searchOptions?.isRegex ?? false,
+          isCaseSensitive: snap.searchOptions?.isCaseSensitive ?? false,
+          isWholeWord: snap.searchOptions?.isWholeWord ?? false,
+        });
+      }
+
+      // Restore file tab & viewport scroll focus
+      if (snap.activeSourceId) {
+        void useFileMonitorStore.getState().selectFile(snap.activeSourceId).then(() => {
+          if (snap.focusedLineNumber != null) {
+            useViewerStore.getState().scrollToLineRowIndex(snap.focusedLineNumber - 1, snap.activeSourceId!);
+          }
+        });
+      }
 
       return {
         investigationsById: {

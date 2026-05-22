@@ -29,29 +29,55 @@ export const parseChunk = ({
     const byteStart = byteCursor;
     const byteEnd = byteStart + byteLength;
     byteCursor = byteEnd + 1;
-    const timestamp = extractTimestamp(raw, rules);
 
-    return {
-      id: `${chunk.sourceId}:${lineNumber}:${hashLine(raw)}`,
-      sourceId: chunk.sourceId,
-      filePath: chunk.filePath,
-      chunkId: chunk.id,
-      lineNumber,
-      byteStart,
-      byteEnd,
-      timestamp,
-      timestampEpochMs: timestamp ? normalizeTimestamp(timestamp) : null,
-      severity: detectSeverity(raw, rules),
-      source: extractSource(raw, rules),
-      eventKind: null,
-      correlationIds: extractMatches(raw, rules.correlationIdPatterns),
-      hardwareIds: extractMatches(raw, rules.hardwareIdPatterns),
-      paymentIds: extractMatches(raw, rules.paymentIdPatterns),
-      sessionIds: extractMatches(raw, rules.sessionIdPatterns),
-      message: extractMessage(raw, timestamp),
-      raw,
-      parseConfidence: 0.85,
-    } satisfies StructuredLogEntry;
+    try {
+      const timestamp = extractTimestamp(raw, rules);
+
+      return {
+        id: `${chunk.sourceId}:${lineNumber}:${hashLine(raw)}`,
+        sourceId: chunk.sourceId,
+        filePath: chunk.filePath,
+        chunkId: chunk.id,
+        lineNumber,
+        byteStart,
+        byteEnd,
+        timestamp,
+        timestampEpochMs: timestamp ? normalizeTimestamp(timestamp) : null,
+        severity: detectSeverity(raw, rules),
+        source: extractSource(raw, rules),
+        eventKind: null,
+        correlationIds: extractMatches(raw, rules.correlationIdPatterns),
+        hardwareIds: extractMatches(raw, rules.hardwareIdPatterns),
+        paymentIds: extractMatches(raw, rules.paymentIdPatterns),
+        sessionIds: extractMatches(raw, rules.sessionIdPatterns),
+        message: extractMessage(raw, timestamp),
+        raw,
+        parseConfidence: 0.85,
+      } satisfies StructuredLogEntry;
+    } catch (error) {
+      console.error(`Failed parsing log entry at line ${lineNumber}:`, error);
+      return {
+        id: `${chunk.sourceId}:${lineNumber}:${hashLine(raw)}`,
+        sourceId: chunk.sourceId,
+        filePath: chunk.filePath,
+        chunkId: chunk.id,
+        lineNumber,
+        byteStart,
+        byteEnd,
+        timestamp: null,
+        timestampEpochMs: null,
+        severity: 'neutral',
+        source: 'PARSER_ERROR',
+        eventKind: null,
+        correlationIds: [],
+        hardwareIds: [],
+        paymentIds: [],
+        sessionIds: [],
+        message: raw.trim(),
+        raw,
+        parseConfidence: 0.0,
+      } satisfies StructuredLogEntry;
+    }
   });
 
   return {

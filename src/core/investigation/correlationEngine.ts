@@ -7,6 +7,8 @@ import type {
   FailureChainCandidate,
 } from '@shared/contracts/investigations';
 import type { StructuredLogEntry } from '@shared/contracts/logs';
+import type { ExtractedRule } from '@shared/contracts/knowledge';
+
 
 /**
  * High-performance off-thread correlation engine that parses log sequences
@@ -295,6 +297,7 @@ export class OperationalCorrelationEngine {
   public static validateDomainRules(
     _sourceId: string,
     entries: StructuredLogEntry[],
+    customRules?: ExtractedRule[],
   ): DomainRuleResult[] {
     const results: DomainRuleResult[] = [];
 
@@ -492,6 +495,185 @@ export class OperationalCorrelationEngine {
             ? `Pass: System successfully initialized and reached operational READY status in ${(p4Delay / 1000).toFixed(1)}s.`
             : 'Neutral: No system boot sequences recorded in log.',
     });
+
+    // Rule 5: API Retry Storm SLA (Max 5 attempts in 20s)
+    const apiRetryLogs = entries.filter(
+      (e) => /api|http|request/i.test(e.message || '') && /retry|attempt|backoff/i.test(e.message || ''),
+    );
+    let retryStormStatus: 'passed' | 'violation' | 'unknown' = apiRetryLogs.length > 0 ? 'passed' : 'unknown';
+    const retryStormEvidenceIds: string[] = [];
+    let retryStormViolationMsg = 'No excessive API request retry storms observed in telemetry.';
+
+    const slidingWindowMs = 20000;
+    for (let i = 0; i < apiRetryLogs.length; i++) {
+      const startLog = apiRetryLogs[i]!;
+      const startTime = startLog.timestampEpochMs;
+      if (startTime === null) continue;
+
+      const windowLogs = [startLog];
+      for (let j = i + 1; j < apiRetryLogs.length; j++) {
+        const nextLog = apiRetryLogs[j]!;
+        if (nextLog.timestampEpochMs === null) continue;
+        if (nextLog.timestampEpochMs - startTime <= slidingWindowMs) {
+          windowLogs.push(nextLog);
+        } else {
+          break;
+        }
+      }
+
+      if (windowLogs.length >= 5) {
+        retryStormStatus = 'violation';
+        retryStormEvidenceIds.push(...windowLogs.map(e => e.id));
+        retryStormViolationMsg = `Violation: Detected an API retry storm containing ${windowLogs.length} attempts in a ${(slidingWindowMs/1000)}s window.`;
+        break;
+      }
+    }
+
+    results.push({
+      ruleId: 'rule-api-retry-storm',
+      name: 'API Connection Request Retry Storm SLA',
+      category: 'network',
+      expectedBehavior: 'Kiosk API endpoints must not experience 5 or more connection retries within a 20-second window.',
+      status: retryStormStatus,
+      evidenceEntryIds: retryStormEvidenceIds.slice(0, 10),
+      notes: retryStormStatus === 'violation'
+        ? retryStormViolationMsg
+        : retryStormStatus === 'passed'
+          ? 'API retry spikes remained below storm levels (< 5 retries in 20 seconds).'
+          : 'No API connection retry logs registered in current dataset.',
+    });
+
+    // Rule 6: Heartbeat SLA Interval Compliance (Max 30s gap)
+    const heartbeatLogs = entries.filter((e) => /heartbeat|ping/i.test(e.message || '') && !/drop|fail|timeout|missing|lost/i.test(e.message || ''));
+    const sortedHeartbeats = [...heartbeatLogs].sort((a, b) => (a.timestampEpochMs ?? 0) - (b.timestampEpochMs ?? 0));
+    let heartbeatSlaStatus: 'passed' | 'violation' | 'unknown' = sortedHeartbeats.length >= 2 ? 'passed' : 'unknown';
+    const heartbeatSlaEvidenceIds: string[] = [];
+    let heartbeatSlaNotes = 'All consecutive heartbeat intervals complied with the 30-second connectivity SLA.';
+    let heartbeatSlaViolationCount = 0;
+
+    for (let i = 0; i < sortedHeartbeats.length - 1; i++) {
+      const current = sortedHeartbeats[i]!;
+      const next = sortedHeartbeats[i + 1]!;
+      if (current.timestampEpochMs !== null && next.timestampEpochMs !== null) {
+        const interval = next.timestampEpochMs - current.timestampEpochMs;
+        if (interval > 30000) {
+          heartbeatSlaStatus = 'violation';
+          heartbeatSlaEvidenceIds.push(current.id, next.id);
+          heartbeatSlaViolationCount++;
+        }
+      }
+    }
+    if (heartbeatSlaStatus === 'violation') {
+      heartbeatSlaNotes = `Violation: Detected ${heartbeatSlaViolationCount} instances where the interval between successive pings exceeded the 30-second SLA limit.`;
+    } else if (heartbeatSlaStatus === 'unknown') {
+      heartbeatSlaNotes = 'Insufficient heartbeat ping records in logs to audit connection intervals.';
+    }
+
+    results.push({
+      ruleId: 'rule-heartbeat-sla',
+      name: 'Heartbeat Ping SLA Continuity Interval',
+      category: 'network',
+      expectedBehavior: 'Active kiosk connections must broadcast a stable heartbeat/ping at least once every 30 seconds.',
+      status: heartbeatSlaStatus,
+      evidenceEntryIds: heartbeatSlaEvidenceIds.slice(0, 10),
+      notes: heartbeatSlaNotes,
+    });
+
+    // Rule 7: Reset Loop Integrity Check
+    const rebootLogs = entries.filter((e) => /reboot|reset|restart|shutdown|kiosk_start|system_restart/i.test(e.message || ''));
+    const sortedReboots = [...rebootLogs].sort((a, b) => (a.timestampEpochMs ?? 0) - (b.timestampEpochMs ?? 0));
+    let resetLoopStatus: 'passed' | 'violation' | 'unknown' = sortedReboots.length > 0 ? 'passed' : 'unknown';
+    const resetLoopEvidenceIds: string[] = [];
+    let resetLoopNotes = 'System boot and restart cycles remained stable with no reboot loops detected.';
+    let resetLoopViolationCount = 0;
+    const loopWindowMs = 5 * 60 * 1000; // 5 minutes
+
+    for (let i = 0; i < sortedReboots.length; i++) {
+      const current = sortedReboots[i]!;
+      const currentMs = current.timestampEpochMs;
+      if (currentMs === null) continue;
+
+      const windowReboots = [current];
+      for (let j = i + 1; j < sortedReboots.length; j++) {
+        const next = sortedReboots[j]!;
+        if (next.timestampEpochMs === null) continue;
+        if (next.timestampEpochMs - currentMs <= loopWindowMs) {
+          windowReboots.push(next);
+        } else {
+          break;
+        }
+      }
+
+      if (windowReboots.length >= 2) {
+        resetLoopStatus = 'violation';
+        resetLoopEvidenceIds.push(...windowReboots.map(e => e.id));
+        resetLoopViolationCount++;
+      }
+    }
+    if (resetLoopStatus === 'violation') {
+      resetLoopNotes = `Violation: Detected reboot loop. Kiosk experienced ${resetLoopViolationCount} rapid restarts within a 5-minute window.`;
+    }
+
+    results.push({
+      ruleId: 'rule-reset-loop',
+      name: 'Kiosk Restart Loop Protection SLA',
+      category: 'system',
+      expectedBehavior: 'Kiosk hardware must not cycle through 2 or more reboot or watchdog restarts within a 5-minute window.',
+      status: resetLoopStatus,
+      evidenceEntryIds: resetLoopEvidenceIds.slice(0, 10),
+      notes: resetLoopNotes,
+    });
+
+    // Rule 8+: Dynamic custom rules parsed from ingested documents
+    if (customRules && customRules.length > 0) {
+      for (const rule of customRules) {
+        let status: 'passed' | 'violation' | 'unknown' = 'unknown';
+        const evidenceIds: string[] = [];
+        let matchingCount = 0;
+        let violationCount = 0;
+
+        let regex: RegExp | null = null;
+        try {
+          regex = new RegExp(rule.pattern, 'i');
+        } catch {
+          // Fallback to literal matches if pattern is malformed regex
+        }
+
+        for (const entry of entries) {
+          const msg = (entry.message || entry.raw || '');
+          const isMatch = regex ? regex.test(msg) : msg.toLowerCase().includes(rule.pattern.toLowerCase());
+          
+          if (isMatch) {
+            matchingCount++;
+            const hasError = entry.severity === 'error' || /fail|error|timeout|block|crash|exception/i.test(msg);
+            if (hasError) {
+              violationCount++;
+              evidenceIds.push(entry.id);
+            } else {
+              evidenceIds.push(entry.id);
+            }
+          }
+        }
+
+        if (matchingCount > 0) {
+          status = violationCount > 0 ? 'violation' : 'passed';
+        }
+
+        results.push({
+          ruleId: rule.ruleId,
+          name: rule.name,
+          category: rule.category,
+          expectedBehavior: rule.expectedBehavior,
+          status,
+          evidenceEntryIds: evidenceIds.slice(0, 10),
+          notes: status === 'violation'
+            ? `Violation: Detected ${violationCount} potential compliance failures out of ${matchingCount} matching logs for pattern: "${rule.pattern}".`
+            : status === 'passed'
+              ? `Pass: All ${matchingCount} matching logs complied successfully with no errors matching pattern: "${rule.pattern}".`
+              : `Neutral: No active events found in logs matching pattern "${rule.pattern}".`,
+        });
+      }
+    }
 
     return results;
   }

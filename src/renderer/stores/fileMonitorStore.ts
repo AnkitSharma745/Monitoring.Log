@@ -556,8 +556,31 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
         async (path) => get().selectFile(path),
         async (path) => get().startWatching(path),
       );
-    } catch {
-      // ignore
+    } catch (error) {
+      window.desktop.logging.log(
+        'error',
+        `Workspace state corruption detected: ${error instanceof Error ? error.message : String(error)}`,
+        'fileMonitorStore.ts',
+      );
+
+      // Auto-repair state by resetting to clean defaults and purging localStorage
+      window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+
+      useSettingsStore.setState({
+        theme: 'light',
+        preferences: mergePreferencesWithDefaults(null),
+      });
+      useSearchStore.setState({
+        searchHistory: [],
+        searchQuery: '',
+      });
+      useViewerStore.setState({ selectedFilePath: null });
+      set({
+        selectedFilePath: null,
+        isSidebarVisible: true,
+        isExplorerVisible: true,
+        isLogViewerExpanded: false,
+      });
     }
   },
 

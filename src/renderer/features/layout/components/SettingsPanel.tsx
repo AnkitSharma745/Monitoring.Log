@@ -468,15 +468,30 @@ export const AdvancedSettingsPanel = (): JSX.Element => {
 
                 <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-readable">Dangerous Actions</h4>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    className="h-8"
-                    onClick={clearWorkspaceHistory}
-                  >
-                    <Trash2 size={13} className="mr-2" />
-                    Clear Workspace Index History
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      className="h-8"
+                      onClick={clearWorkspaceHistory}
+                    >
+                      <Trash2 size={13} className="mr-2" />
+                      Clear Workspace Index History
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => {
+                        window.localStorage.removeItem('monitoring-log.workspace.v1');
+                        window.localStorage.removeItem('monitoring-log.settings.v1');
+                        window.location.reload();
+                      }}
+                    >
+                      <RefreshCw size={13} className="mr-2" />
+                      Repair Workspace / Reset Cache
+                    </Button>
+                  </div>
                 </div>
               </div>
             </SettingsWorkspaceSection>

@@ -81,6 +81,9 @@ export interface InvestigationSnapshot {
   savedFilters: SavedFilter[];
   bookmarks: EvidenceBookmark[];
   notes: string;
+  searchQuery?: string;
+  searchOptions?: { isRegex: boolean; isCaseSensitive: boolean; isWholeWord: boolean };
+  focusedLineNumber?: number | null;
 }
 
 export interface Investigation {

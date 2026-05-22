@@ -33,7 +33,7 @@ interface LogToolbarProps {
 export const LogToolbar = ({
   isBusy,
   activeFilePath,
-  stats,
+  stats: _stats,
   matchCount,
 }: LogToolbarProps): JSX.Element => {
   const inputRef = useRef<HTMLInputElement | null>(null);
