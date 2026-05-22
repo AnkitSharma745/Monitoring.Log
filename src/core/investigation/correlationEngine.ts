@@ -1,4 +1,3 @@
-import type { StructuredLogEntry } from '@shared/contracts/logs';
 import type {
   Incident,
   IncidentCategory,
@@ -7,6 +6,7 @@ import type {
   DomainRuleResult,
   FailureChainCandidate,
 } from '@shared/contracts/investigations';
+import type { StructuredLogEntry } from '@shared/contracts/logs';
 
 /**
  * High-performance off-thread correlation engine that parses log sequences

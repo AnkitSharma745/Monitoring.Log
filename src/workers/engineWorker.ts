@@ -53,6 +53,11 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
           request.severityFilters,
           request.searchQuery,
           request.filterToMatches,
+          request.isRegex,
+          request.isCaseSensitive,
+          request.isWholeWord,
+          request.includeFilter,
+          request.excludeFilter,
         ),
       };
     }

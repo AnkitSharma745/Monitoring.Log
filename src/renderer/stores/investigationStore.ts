@@ -24,6 +24,7 @@ interface InvestigationStoreState {
   updateNotes: (notes: string) => void;
   addBookmark: (bookmark: Omit<EvidenceBookmark, 'id' | 'createdAt'>) => void;
   removeBookmark: (bookmarkId: string) => void;
+  updateBookmarkNote: (bookmarkId: string, note: string) => void;
   saveFilter: (filter: Omit<SavedFilter, 'id'>) => void;
   removeSavedFilter: (filterId: string) => void;
   takeSnapshot: (title: string, activeSourceId: string | null) => void;
@@ -172,6 +173,26 @@ export const useInvestigationStore = create<InvestigationStoreState>((set, get) 
           [activeId]: {
             ...inv,
             bookmarks: inv.bookmarks.filter((b) => b.id !== bookmarkId),
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    });
+  },
+
+  updateBookmarkNote: (bookmarkId, note): void => {
+    const activeId = get().ensureActiveInvestigation();
+    set((state) => {
+      const inv = state.investigationsById[activeId];
+      if (!inv) return {};
+      return {
+        investigationsById: {
+          ...state.investigationsById,
+          [activeId]: {
+            ...inv,
+            bookmarks: inv.bookmarks.map((b) =>
+              b.id === bookmarkId ? { ...b, note } : b
+            ),
             updatedAt: new Date().toISOString(),
           },
         },

@@ -56,6 +56,8 @@ export interface ViewerPreferences {
   compactMode: boolean;
   collapseRepeatedLogs: boolean;
   severityFilters: Record<LogSeverity, boolean>;
+  includeFilter: string;
+  excludeFilter: string;
 }
 
 export type ThemeMode = 'light' | 'dark';
@@ -181,6 +183,8 @@ const createDefaultPreferences = (): ViewerPreferences => {
     compactMode: false,
     collapseRepeatedLogs: true,
     severityFilters: createEnabledSeverityFilters(),
+    includeFilter: '',
+    excludeFilter: '',
   };
 };
 
@@ -451,7 +455,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
         isLogViewerExpanded: parsed.isLogViewerExpanded ?? false,
         statusMessage: 'Workspace preferences imported.',
       });
-    } catch (error) {
+    } catch {
       set({ errorMessage: 'Unable to import preferences.' });
     }
   },
@@ -477,8 +481,11 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   removeDirectory: (dirPath: string): void => {
     const directory = useWorkspaceStore.getState().directories.find((d) => d.root.path === dirPath);
     if (directory) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const getAllFilePaths = (node: any): string[] => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const paths = node.files.map((f: any) => f.path);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const childPaths = node.children.flatMap((child: any) =>
           child.kind === 'directory' ? getAllFilePaths(child) : [child.path],
         );
@@ -591,6 +598,7 @@ useWorkspaceStore.subscribe((workspaceState) => {
 let queuedFileUpdates: FileUpdateEvent[] = [];
 let isFileUpdateFlushScheduled = false;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const queueFileUpdate = (set: any, event: FileUpdateEvent): void => {
   queuedFileUpdates = [...queuedFileUpdates, event];
 
@@ -613,6 +621,7 @@ const queueFileUpdate = (set: any, event: FileUpdateEvent): void => {
   window.requestAnimationFrame(flushQueuedUpdates);
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const applyQueuedFileUpdates = (set: any, events: FileUpdateEvent[]): void => {
   const state = useFileMonitorStore.getState();
   const activitySamples = [...state.activitySamples];

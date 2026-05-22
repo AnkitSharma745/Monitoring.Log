@@ -1,4 +1,5 @@
 import { useEffect, type JSX } from 'react';
+import { OverlayHost } from '@renderer/components/ui/OverlayHost';
 import { LogViewer } from '@renderer/features/logViewer/components/LogViewer';
 import { ActivityBar } from '@renderer/features/workbench/components/ActivityBar';
 import { BottomPanelHost } from '@renderer/features/workbench/components/BottomPanelHost';
@@ -6,9 +7,8 @@ import { SidePanelHost } from '@renderer/features/workbench/components/SidePanel
 import { WorkbenchStatusBar } from '@renderer/features/workbench/components/WorkbenchStatusBar';
 import { WorkbenchTopBar } from '@renderer/features/workbench/components/WorkbenchTopBar';
 import { useWorkbenchStore } from '@renderer/features/workbench/workbenchStore';
-import { SettingsPanel } from './SettingsPanel';
-import { OverlayHost } from '@renderer/components/ui/OverlayHost';
 import { CommandService } from '@renderer/services/workbenchServices';
+import { SettingsPanel } from './SettingsPanel';
 
 export const AppLayout = (): JSX.Element => {
   const isSidePanelVisible = useWorkbenchStore((state) => state.isSidePanelVisible);
@@ -64,7 +64,7 @@ export const AppLayout = (): JSX.Element => {
       <WorkbenchTopBar />
       <ActivityBar />
       <SidePanelHost />
-      <section className="col-[3] row-[2] flex flex-col h-full min-h-0 min-w-0 overflow-hidden">
+      <section className="col-3 row-2 flex flex-col h-full min-h-0 min-w-0 overflow-hidden">
         <LogViewer />
       </section>
       <BottomPanelHost />

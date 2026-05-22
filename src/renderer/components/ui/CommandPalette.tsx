@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Terminal } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { CommandService } from '@renderer/services/workbenchServices';
 import { useOverlayStore } from '@renderer/stores/overlayStore';
+import type React from 'react';
 
 export const CommandPalette = (): React.JSX.Element => {
   const [query, setQuery] = useState('');

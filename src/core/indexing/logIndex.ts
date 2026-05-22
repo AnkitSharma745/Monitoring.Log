@@ -137,16 +137,29 @@ export class InMemoryLogIndex {
     severityFilters?: Record<string, boolean>,
     searchQuery?: string,
     filterToMatches?: boolean,
+    isRegex?: boolean,
+    isCaseSensitive?: boolean,
+    isWholeWord?: boolean,
+    includeFilter?: string,
+    excludeFilter?: string,
   ): VisibleLogWindow {
     const entries = this.entriesBySource.get(sourceId) ?? [];
+    const matcher = searchQuery
+      ? buildMatcher(searchQuery, isRegex, isCaseSensitive, isWholeWord)
+      : null;
 
     const filteredEntries = entries.filter((entry) => {
       if (severityFilters && !severityFilters[entry.severity]) {
         return false;
       }
-      if (searchQuery && filterToMatches) {
-        const query = searchQuery.trim().toLowerCase();
-        if (query && !entry.raw.toLowerCase().includes(query)) {
+      if (includeFilter && !checkIncludeFilter(entry.raw, includeFilter)) {
+        return false;
+      }
+      if (excludeFilter && !checkExcludeFilter(entry.raw, excludeFilter)) {
+        return false;
+      }
+      if (matcher && filterToMatches) {
+        if (!matcher(entry.raw)) {
           return false;
         }
       }
@@ -154,18 +167,17 @@ export class InMemoryLogIndex {
     });
 
     const slice = filteredEntries.slice(startRow, endRow + 1);
-    const query = searchQuery?.trim().toLowerCase();
     const matchedIndices: number[] = [];
-    if (query) {
+    if (matcher) {
       filteredEntries.forEach((entry, idx) => {
-        if (entry.raw.toLowerCase().includes(query)) {
+        if (matcher(entry.raw)) {
           matchedIndices.push(idx);
         }
       });
     }
 
     const finalEntries = slice.map((entry) => {
-      const matchesSearch = query ? entry.raw.toLowerCase().includes(query) : false;
+      const matchesSearch = matcher ? matcher(entry.raw) : false;
       return {
         ...entry,
         matchesSearch,
@@ -188,17 +200,20 @@ export class InMemoryLogIndex {
       endRow,
       totalRows: filteredEntries.length,
       entries: finalEntries,
-      matchedCount: query ? matchedIndices.length : 0,
+      matchedCount: matcher ? matchedIndices.length : 0,
       matchedIndices,
       severityStats,
     };
   }
 
   public search(query: SearchQuery): SearchResult {
-    const normalizedText = query.text.trim().toLocaleLowerCase();
+    const text = query.text || '';
+    const isRegex = query.isRegex ?? false;
+    const isCaseSensitive = query.isCaseSensitive ?? false;
+    const isWholeWord = query.isWholeWord ?? false;
 
-    // Check search cache
-    const cacheKey = `${query.sourceIds.join(',')}:${normalizedText}:${JSON.stringify(query.severityFilters)}:${query.timeRange.start || ''}-${query.timeRange.end || ''}`;
+    // Check search cache (includes toggles)
+    const cacheKey = `${query.sourceIds.join(',')}:${text}:${isRegex}:${isCaseSensitive}:${isWholeWord}:${JSON.stringify(query.severityFilters)}:${query.timeRange.start || ''}-${query.timeRange.end || ''}`;
     const cached = this.searchCache.get(cacheKey);
     if (cached) {
       return {
@@ -212,6 +227,25 @@ export class InMemoryLogIndex {
 
     const matches: SearchMatch[] = [];
 
+    // Compile regex if searching
+    let regex: RegExp | null = null;
+    if (text) {
+      try {
+        let pattern = text;
+        if (!isRegex) {
+          pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        if (isWholeWord) {
+          pattern = `\\b${pattern}\\b`;
+        }
+        // Always make it global so we can find multiple match columns on the line
+        const flags = isCaseSensitive ? 'g' : 'gi';
+        regex = new RegExp(pattern, flags);
+      } catch (err) {
+        console.error('Regex compilation error in search:', err);
+      }
+    }
+
     for (const sourceId of query.sourceIds) {
       const entries = this.entriesBySource.get(sourceId) ?? [];
 
@@ -224,11 +258,38 @@ export class InMemoryLogIndex {
           continue;
         }
 
-        const normalizedRaw = entry.raw.toLocaleLowerCase();
-        const matchIndex = normalizedText ? normalizedRaw.indexOf(normalizedText) : 0;
+        const raw = entry.raw;
+        const matchRanges: Array<{ startColumn: number; endColumn: number }> = [];
 
-        if (matchIndex === -1) {
-          continue;
+        if (text) {
+          if (regex) {
+            regex.lastIndex = 0;
+            let match;
+            while ((match = regex.exec(raw)) !== null) {
+              matchRanges.push({
+                startColumn: match.index,
+                endColumn: match.index + match[0].length,
+              });
+              if (!regex.global) break;
+              if (match[0].length === 0) regex.lastIndex++;
+            }
+          } else {
+            // Fallback substring search
+            const lowerRaw = raw.toLowerCase();
+            const lowerText = text.toLowerCase();
+            let idx = lowerRaw.indexOf(lowerText);
+            while (idx !== -1) {
+              matchRanges.push({
+                startColumn: idx,
+                endColumn: idx + lowerText.length,
+              });
+              idx = lowerRaw.indexOf(lowerText, idx + lowerText.length);
+            }
+          }
+
+          if (matchRanges.length === 0) {
+            continue;
+          }
         }
 
         matches.push({
@@ -237,9 +298,8 @@ export class InMemoryLogIndex {
           lineNumber: entry.lineNumber,
           byteStart: entry.byteStart,
           byteEnd: entry.byteEnd,
-          matchRanges: normalizedText
-            ? [{ startColumn: matchIndex, endColumn: matchIndex + normalizedText.length }]
-            : [],
+          matchRanges,
+          raw: entry.raw,
         });
 
         // Limit results check (but still cache all matches up to 5000 for scroll virtualization performance)
@@ -251,7 +311,7 @@ export class InMemoryLogIndex {
 
     // Cache the search results
     this.searchCache.set(cacheKey, {
-      queryText: normalizedText,
+      queryText: text,
       sourceIds: query.sourceIds,
       severityFilters: { ...query.severityFilters },
       matches,
@@ -432,4 +492,47 @@ const createSearchResult = (query: SearchQuery, matches: SearchMatch[]): SearchR
     matches,
     completedAt: new Date().toISOString(),
   };
+};
+
+const buildMatcher = (
+  text: string,
+  isRegex = false,
+  isCaseSensitive = false,
+  isWholeWord = false,
+): ((raw: string) => boolean) | null => {
+  if (!text) return null;
+  try {
+    let pattern = text;
+    if (!isRegex) {
+      pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    if (isWholeWord) {
+      pattern = `\\b${pattern}\\b`;
+    }
+    const flags = isCaseSensitive ? '' : 'i';
+    const regex = new RegExp(pattern, flags);
+    return (raw: string) => regex.test(raw);
+  } catch (err) {
+    console.error('Regex compilation error:', err);
+    const lowerText = text.toLowerCase();
+    return (raw: string) => raw.toLowerCase().includes(lowerText);
+  }
+};
+
+const checkIncludeFilter = (raw: string, includeStr: string): boolean => {
+  if (!includeStr) return true;
+  const parts = includeStr
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return parts.every((part) => raw.toLowerCase().includes(part));
+};
+
+const checkExcludeFilter = (raw: string, excludeStr: string): boolean => {
+  if (!excludeStr) return true;
+  const parts = excludeStr
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return !parts.some((part) => raw.toLowerCase().includes(part));
 };

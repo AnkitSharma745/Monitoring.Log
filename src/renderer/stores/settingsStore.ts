@@ -13,6 +13,8 @@ export interface ViewerPreferences {
   compactMode: boolean;
   collapseRepeatedLogs: boolean;
   severityFilters: Record<LogSeverity, boolean>;
+  includeFilter: string;
+  excludeFilter: string;
 }
 
 const createEnabledSeverityFilters = (): Record<LogSeverity, boolean> => {
@@ -34,6 +36,8 @@ const createDefaultPreferences = (): ViewerPreferences => {
     compactMode: false,
     collapseRepeatedLogs: true,
     severityFilters: createEnabledSeverityFilters(),
+    includeFilter: '',
+    excludeFilter: '',
   };
 };
 
@@ -56,6 +60,8 @@ interface SettingsStoreState {
   toggleCompactMode: () => void;
   toggleCollapseRepeatedLogs: () => void;
   toggleSeverityFilter: (severity: LogSeverity) => void;
+  setIncludeFilter: (val: string) => void;
+  setExcludeFilter: (val: string) => void;
   resetLogFilters: () => void;
 }
 
@@ -187,12 +193,26 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
     }));
   },
 
+  setIncludeFilter: (val): void => {
+    set((state) => ({
+      preferences: { ...state.preferences, includeFilter: val },
+    }));
+  },
+
+  setExcludeFilter: (val): void => {
+    set((state) => ({
+      preferences: { ...state.preferences, excludeFilter: val },
+    }));
+  },
+
   resetLogFilters: (): void => {
     set((state) => ({
       preferences: {
         ...state.preferences,
         filterToMatches: false,
         severityFilters: createEnabledSeverityFilters(),
+        includeFilter: '',
+        excludeFilter: '',
       },
     }));
   },

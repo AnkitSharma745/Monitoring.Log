@@ -50,6 +50,10 @@ interface ViewerStoreState {
     neutral: number;
     total: number;
   };
+  splitFilePath: string | null;
+  isSplitActive: boolean;
+  isScrollSyncActive: boolean;
+  selectedLineEntry: StructuredLogEntry | null;
   setMode: (mode: ViewerMode) => void;
   setActiveWindow: (window: ViewerWindow | null) => void;
   selectFile: (filePath: string, upsertTab: (path: string) => void) => Promise<void>;
@@ -75,6 +79,10 @@ interface ViewerStoreState {
   fetchViewportEntries: (sourceId: string, startRow: number, endRow: number) => Promise<void>;
   targetLineRowIndex: number | null;
   scrollToLineRowIndex: (idx: number | null) => void;
+  setSplitActive: (active: boolean) => void;
+  selectSplitFile: (filePath: string | null) => void;
+  toggleScrollSync: () => void;
+  setSelectedLineEntry: (entry: StructuredLogEntry | null) => void;
 }
 
 export const trimContent = (
@@ -111,9 +119,29 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
   viewportMatchedIndices: [],
   viewportSeverityStats: { error: 0, warn: 0, info: 0, debug: 0, neutral: 0, total: 0 },
   targetLineRowIndex: null,
+  splitFilePath: null,
+  isSplitActive: false,
+  isScrollSyncActive: false,
+  selectedLineEntry: null,
 
   scrollToLineRowIndex: (idx): void => {
     set({ targetLineRowIndex: idx });
+  },
+
+  setSplitActive: (active): void => {
+    set({ isSplitActive: active });
+  },
+
+  selectSplitFile: (filePath): void => {
+    set({ splitFilePath: filePath });
+  },
+
+  toggleScrollSync: (): void => {
+    set((state) => ({ isScrollSyncActive: !state.isScrollSyncActive }));
+  },
+
+  setSelectedLineEntry: (entry): void => {
+    set({ selectedLineEntry: entry });
   },
 
   setMode: (mode): void => {
@@ -463,6 +491,11 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     const searchQuery = searchStore.searchQuery;
     const filterToMatches = settingsStore.preferences.filterToMatches;
     const severityFilters = settingsStore.preferences.severityFilters;
+    const isRegex = searchStore.isRegex;
+    const isCaseSensitive = searchStore.isCaseSensitive;
+    const isWholeWord = searchStore.isWholeWord;
+    const includeFilter = settingsStore.preferences.includeFilter;
+    const excludeFilter = settingsStore.preferences.excludeFilter;
 
     const workerClient = getEngineWorkerClient();
     try {
@@ -475,6 +508,11 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
         severityFilters,
         searchQuery,
         filterToMatches,
+        isRegex,
+        isCaseSensitive,
+        isWholeWord,
+        includeFilter,
+        excludeFilter,
       });
 
       if (res.type === 'getVisibleWindow:done') {

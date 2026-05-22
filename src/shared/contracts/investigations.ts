@@ -68,6 +68,7 @@ export interface EvidenceBookmark {
   lineNumber: number;
   timestamp: string | null;
   message: string;
+  sourceId?: string;
   note?: string;
   createdAt: string;
 }

@@ -12,7 +12,11 @@ interface SearchStoreState {
   activeQueryId: string | null;
   cachedQueries: SearchCacheSummary[];
   resultsByQueryId: Record<string, SearchResult>;
+  isRegex: boolean;
+  isCaseSensitive: boolean;
+  isWholeWord: boolean;
   setSearchQuery: (query: string) => void;
+  setSearchOptions: (opts: Partial<{ isRegex: boolean; isCaseSensitive: boolean; isWholeWord: boolean }>) => void;
   selectNextSearchMatch: () => void;
   selectPreviousSearchMatch: () => void;
   saveCurrentSearch: () => void;
@@ -29,9 +33,16 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
   activeQueryId: null,
   cachedQueries: [],
   resultsByQueryId: {},
+  isRegex: false,
+  isCaseSensitive: false,
+  isWholeWord: false,
 
   setSearchQuery: (query): void => {
     set({ searchQuery: query, activeSearchMatchIndex: 0 });
+  },
+
+  setSearchOptions: (opts): void => {
+    set((state) => ({ ...state, ...opts, activeSearchMatchIndex: 0 }));
   },
 
   selectNextSearchMatch: (): void => {

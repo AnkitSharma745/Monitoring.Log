@@ -76,7 +76,6 @@ export default defineConfig(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'promise/always-return': 'off',
       'promise/catch-or-return': 'warn',
-      complexity: ['warn', 15],
     },
   },
   eslintConfigPrettier,

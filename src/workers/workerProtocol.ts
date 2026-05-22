@@ -36,6 +36,11 @@ export type EngineWorkerRequest =
       severityFilters?: Record<string, boolean>;
       searchQuery?: string;
       filterToMatches?: boolean;
+      isRegex?: boolean;
+      isCaseSensitive?: boolean;
+      isWholeWord?: boolean;
+      includeFilter?: string;
+      excludeFilter?: string;
     }
   | {
       type: 'getCorrelationSequence';

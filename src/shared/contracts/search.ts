@@ -11,6 +11,9 @@ export interface SearchQuery {
     end: string | null;
   };
   limit: number;
+  isRegex?: boolean;
+  isCaseSensitive?: boolean;
+  isWholeWord?: boolean;
 }
 
 export interface SearchMatch {
@@ -23,6 +26,7 @@ export interface SearchMatch {
     startColumn: number;
     endColumn: number;
   }>;
+  raw?: string;
 }
 
 export interface SearchResult {

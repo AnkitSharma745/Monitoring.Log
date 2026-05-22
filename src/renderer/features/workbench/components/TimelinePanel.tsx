@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react';
 import { useViewerStore } from '@renderer/stores/viewerStore';
+import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
 import type { StructuredLogEntry } from '@shared/contracts/logs';
 
@@ -24,6 +25,11 @@ interface CorrelationSequence {
 
 export const TimelinePanel = (): JSX.Element => {
   const selectedFilePath = useViewerStore((state) => state.selectedFilePath);
+  const bookmarks = useInvestigationStore((state) => {
+    const activeId = state.activeInvestigationId;
+    if (!activeId) return [];
+    return state.investigationsById[activeId]?.bookmarks || [];
+  });
   const [patterns, setPatterns] = useState<DetectedPattern[]>([]);
   const [searchField, setSearchField] = useState<
     'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId'
@@ -300,17 +306,43 @@ export const TimelinePanel = (): JSX.Element => {
                     dotColor = 'bg-info';
                   }
 
+                  const activeBookmark = bookmarks.find(
+                    (b) =>
+                      b.entryId === entry.id ||
+                      (b.lineNumber === entry.lineNumber && b.sourceId === selectedFilePath)
+                  );
+                  const isBookmarked = !!activeBookmark;
+
                   return (
                     <div key={entry.id} className="relative group">
-                      {/* Chronology Dot Connector */}
+                      {/* Chronology Dot Connector with High-visibility Overlays/Pulses */}
                       <span
-                        className={`absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border border-ink-950 flex items-center justify-center ${dotColor}`}
+                        className={`absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border border-ink-950 flex items-center justify-center transition-all ${
+                          isBookmarked
+                            ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                            : dotColor
+                        }`}
                       >
-                        <span className="w-1.5 h-1.5 bg-ink-950 rounded-full" />
+                        {isBookmarked ? (
+                          <span className="text-[8px] text-ink-950 font-black">★</span>
+                        ) : (
+                          <span className="w-1.5 h-1.5 bg-ink-950 rounded-full" />
+                        )}
+                        {(entry.severity === 'error' || isBookmarked) && (
+                          <span
+                            className={`absolute -inset-0.5 rounded-full animate-ping opacity-45 ${
+                              isBookmarked ? 'bg-amber-400' : 'bg-danger'
+                            }`}
+                          />
+                        )}
                       </span>
 
                       <div
-                        className={`p-3 border rounded-lg transition duration-150 hover:bg-ink-900 ${sevColor}`}
+                        className={`p-3 border rounded-lg transition duration-150 hover:bg-ink-900 ${
+                          isBookmarked
+                            ? 'border-amber-400/40 bg-amber-400/[0.04] text-amber-300'
+                            : sevColor
+                        }`}
                       >
                         <div className="flex items-center justify-between text-[10px] text-subtle font-bold mb-1.5">
                           <div className="flex items-center gap-2">
@@ -319,6 +351,23 @@ export const TimelinePanel = (): JSX.Element => {
                             </span>
                             <span>•</span>
                             <span>{entry.timestamp}</span>
+
+                            {/* Dense Professional Telemetry Markers */}
+                            {entry.severity === 'error' && (
+                              <span className="bg-danger/25 text-danger border border-danger/45 px-1 rounded text-[8px] font-black uppercase tracking-wider">
+                                🛑 CRITICAL ERROR
+                              </span>
+                            )}
+                            {entry.severity === 'warn' && (
+                              <span className="bg-warning/25 text-warning border border-warning/45 px-1 rounded text-[8px] font-black uppercase tracking-wider">
+                                ⚠️ WARNING
+                              </span>
+                            )}
+                            {isBookmarked && (
+                              <span className="bg-amber-400/25 text-amber-400 border border-amber-400/45 px-1 rounded text-[8px] font-black uppercase tracking-wider">
+                                ★ BOOKMARKED EVIDENCE
+                              </span>
+                            )}
                           </div>
                           {entry.source && (
                             <span className="bg-ink-800/80 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide">
@@ -330,13 +379,21 @@ export const TimelinePanel = (): JSX.Element => {
                           {entry.message}
                         </div>
 
+                        {/* Visual bookmark custom annotation notes */}
+                        {activeBookmark?.note && (
+                          <div className="mt-2 p-2 bg-amber-400/10 border border-amber-400/30 rounded text-[9px] text-amber-300 italic font-sans flex items-start gap-1.5">
+                            <span className="text-amber-400 shrink-0 font-bold">★ Analysis Note:</span>
+                            <span className="leading-normal">{activeBookmark.note}</span>
+                          </div>
+                        )}
+
                         {/* Preserved raw coordinates tooltip */}
                         <div className="mt-2 pt-1.5 border-t border-ink-800/20 flex items-center justify-between text-[9px] text-subtle opacity-70 group-hover:opacity-100 transition">
                           <span>
                             Raw range: byte {entry.byteStart} - {entry.byteEnd}
                           </span>
                           {entry.paymentIds.length > 0 && (
-                            <span className="text-accent">Tx: {entry.paymentIds.join(', ')}</span>
+                            <span className="text-accent font-bold">Tx: {entry.paymentIds.join(', ')}</span>
                           )}
                         </div>
                       </div>

@@ -3,6 +3,7 @@ import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { useViewerStore } from '@renderer/stores/viewerStore';
 import { useSearchStore } from '@renderer/stores/searchStore';
 import { useSettingsStore } from '@renderer/stores/settingsStore';
+import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
 
 import type {
@@ -32,10 +33,12 @@ export const InvestigationsPanel = (): JSX.Element => {
   const updateNotes = useInvestigationStore((state) => state.updateNotes);
   const addBookmark = useInvestigationStore((state) => state.addBookmark);
   const removeBookmark = useInvestigationStore((state) => state.removeBookmark);
+  const updateBookmarkNote = useInvestigationStore((state) => state.updateBookmarkNote);
   const saveFilter = useInvestigationStore((state) => state.saveFilter);
   const removeSavedFilter = useInvestigationStore((state) => state.removeSavedFilter);
   const takeSnapshot = useInvestigationStore((state) => state.takeSnapshot);
   const restoreSnapshot = useInvestigationStore((state) => state.restoreSnapshot);
+  const selectFile = useFileMonitorStore((state) => state.selectFile);
 
   // Panel state
   const [activeTab, setActiveTab] = useState<ActiveTab>('workspace');
@@ -168,12 +171,20 @@ export const InvestigationsPanel = (): JSX.Element => {
       lineNumber: entry.lineNumber,
       timestamp: entry.timestamp,
       message: entry.message || entry.raw,
+      sourceId: selectedFilePath || '',
     };
     if (bookmarkNote.trim()) {
       bookmarkData.note = bookmarkNote.trim();
     }
     addBookmark(bookmarkData);
     setBookmarkNote('');
+  };
+
+  const handleBookmarkJump = async (b: EvidenceBookmark): Promise<void> => {
+    if (b.sourceId) {
+      await selectFile(b.sourceId);
+    }
+    scrollToLineRowIndex(b.lineNumber - 1);
   };
 
   const handleFocusIncident = (incident: Incident): void => {
@@ -407,22 +418,39 @@ export const InvestigationsPanel = (): JSX.Element => {
                   {activeInv.bookmarks.map((b) => (
                     <div
                       key={b.id}
-                      onClick={() => scrollToLineRowIndex(b.lineNumber - 1)}
-                      className="p-2 bg-ink-900 border border-ink-850 hover:border-accent/40 rounded cursor-pointer transition space-y-1"
+                      onClick={() => void handleBookmarkJump(b)}
+                      className="p-2 bg-ink-900 border border-ink-850 hover:border-accent/40 rounded cursor-pointer transition space-y-2"
                     >
                       <div className="flex items-center justify-between text-[9px] text-subtle font-bold">
-                        <span className="text-accent">Line {b.lineNumber}</span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="text-accent shrink-0">Line {b.lineNumber}</span>
+                          {b.sourceId && (
+                            <span
+                              className="text-[8px] text-emerald-400 bg-ink-950 px-1 py-0.2 rounded truncate max-w-[80px]"
+                              title={b.sourceId}
+                            >
+                              {b.sourceId.split(/[\\/]/).pop()}
+                            </span>
+                          )}
+                        </div>
                         <span>{b.timestamp}</span>
                       </div>
-                      <div className="text-[10px] text-readable line-clamp-2 truncate">
+                      <div className="text-[10px] text-readable line-clamp-2 truncate font-mono">
                         {b.message}
                       </div>
-                      {b.note && (
-                        <div className="text-[9px] text-warning bg-ink-950 p-1 rounded font-sans italic border border-ink-850">
-                          Note: {b.note}
-                        </div>
-                      )}
-                      <div className="flex justify-end pt-1">
+
+                      {/* Inline annotation input */}
+                      <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={b.note || ''}
+                          onChange={(e) => updateBookmarkNote(b.id, e.target.value)}
+                          placeholder="Add diagnostic annotation note..."
+                          className="w-full bg-ink-950 border border-ink-800 rounded px-1.5 py-0.5 text-[9px] text-warning placeholder-subtle font-mono focus:outline-none focus:border-accent"
+                        />
+                      </div>
+
+                      <div className="flex justify-end pt-0.5">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
