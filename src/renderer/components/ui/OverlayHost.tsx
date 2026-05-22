@@ -1,7 +1,7 @@
-import React from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayStore } from '@renderer/stores/overlayStore';
 import { CommandPalette } from './CommandPalette';
+import type React from 'react';
 
 export const OverlayHost = (): React.JSX.Element | null => {
   const isCommandPaletteOpen = useOverlayStore((state) => state.isCommandPaletteOpen);

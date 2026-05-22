@@ -75,6 +75,8 @@ export const SettingsPanel = (): JSX.Element | null => {
   const toggleLineWrap = useFileMonitorStore((state) => state.toggleLineWrap);
   const toggleLineNumbers = useFileMonitorStore((state) => state.toggleLineNumbers);
   const toggleCompactMode = useFileMonitorStore((state) => state.toggleCompactMode);
+  const toggleEnableHeuristicHints = useSettingsStore((state) => state.toggleEnableHeuristicHints);
+  const toggleShowIngestionTrace = useSettingsStore((state) => state.toggleShowIngestionTrace);
 
   if (!isSettingsOpen) {
     return null;
@@ -177,6 +179,24 @@ export const SettingsPanel = (): JSX.Element | null => {
               label="Compact Mode"
               active={preferences.compactMode}
               onToggle={toggleCompactMode}
+            />
+          </div>
+
+          <div className="h-[1px] bg-line/60" />
+
+          <div className="flex flex-col gap-2">
+            <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider">
+              Evidence Intelligence
+            </span>
+            <SettingRowCompact
+              label="Enable Heuristic Hints"
+              active={!!preferences.enableHeuristicHints}
+              onToggle={toggleEnableHeuristicHints}
+            />
+            <SettingRowCompact
+              label="Show Ingestion Trace"
+              active={!!preferences.showIngestionTrace}
+              onToggle={toggleShowIngestionTrace}
             />
           </div>
 

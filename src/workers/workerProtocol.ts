@@ -1,17 +1,17 @@
-import type { EvidencePack } from '@shared/contracts/ai';
+import type { EvidencePack, AiEvidenceResponse } from '@shared/contracts/ai';
 import type {
   Incident,
   StateTransitionSequence,
   DomainRuleResult,
   FailureChainCandidate,
 } from '@shared/contracts/investigations';
-import type { LogChunk, StructuredLogEntry, VisibleLogWindow } from '@shared/contracts/logs';
-import type { SearchQuery, SearchResult } from '@shared/contracts/search';
 import type {
   IngestedDocument,
   KnowledgeQueryResult,
   TroubleshooterMatch,
 } from '@shared/contracts/knowledge';
+import type { LogChunk, StructuredLogEntry, VisibleLogWindow, CorrelationSequence } from '@shared/contracts/logs';
+import type { SearchQuery, SearchResult } from '@shared/contracts/search';
 
 export type EngineWorkerRequest =
   | {
@@ -105,8 +105,25 @@ export type EngineWorkerRequest =
       type: 'getTroubleshooterMatches';
       requestId: string;
       sourceId: string;
+    }
+  // Phase 7 Assistant Requests
+  | {
+      type: 'searchSemanticAssist';
+      requestId: string;
+      query: string;
+      sourceId: string;
+    }
+  | {
+      type: 'findSimilarIncidents';
+      requestId: string;
+      incidentId: string;
+      sourceId: string;
+    }
+  | {
+      type: 'runInvestigationAssist';
+      requestId: string;
+      evidencePack: EvidencePack;
     };
-
 
 export type EngineWorkerResponse =
   | {
@@ -134,7 +151,7 @@ export type EngineWorkerResponse =
   | {
       type: 'getCorrelationSequence:done';
       requestId: string;
-      sequence: any | null;
+      sequence: CorrelationSequence | null;
     }
   | {
       type: 'detectPatterns:done';
@@ -189,9 +206,24 @@ export type EngineWorkerResponse =
       requestId: string;
       matches: TroubleshooterMatch[];
     }
+  // Phase 7 Assistant Responses
+  | {
+      type: 'searchSemanticAssist:done';
+      requestId: string;
+      results: StructuredLogEntry[];
+    }
+  | {
+      type: 'findSimilarIncidents:done';
+      requestId: string;
+      incidents: Incident[];
+    }
+  | {
+      type: 'runInvestigationAssist:done';
+      requestId: string;
+      response: AiEvidenceResponse;
+    }
   | {
       type: 'error';
       requestId: string;
       message: string;
     };
-

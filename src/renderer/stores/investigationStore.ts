@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 
+import { useFileMonitorStore } from './fileMonitorStore';
+import { useSearchStore } from './searchStore';
+import { useViewerStore } from './viewerStore';
 import type { EvidenceItem } from '@shared/contracts/evidence';
 import type {
   Investigation,
@@ -8,9 +11,6 @@ import type {
   SavedFilter,
   InvestigationSnapshot,
 } from '@shared/contracts/investigations';
-import { useSearchStore } from './searchStore';
-import { useViewerStore } from './viewerStore';
-import { useFileMonitorStore } from './fileMonitorStore';
 
 interface InvestigationStoreState {
   activeInvestigationId: string | null;
@@ -193,9 +193,7 @@ export const useInvestigationStore = create<InvestigationStoreState>((set, get) 
           ...state.investigationsById,
           [activeId]: {
             ...inv,
-            bookmarks: inv.bookmarks.map((b) =>
-              b.id === bookmarkId ? { ...b, note } : b
-            ),
+            bookmarks: inv.bookmarks.map((b) => (b.id === bookmarkId ? { ...b, note } : b)),
             updatedAt: new Date().toISOString(),
           },
         },
@@ -304,11 +302,16 @@ export const useInvestigationStore = create<InvestigationStoreState>((set, get) 
 
       // Restore file tab & viewport scroll focus
       if (snap.activeSourceId) {
-        void useFileMonitorStore.getState().selectFile(snap.activeSourceId).then(() => {
-          if (snap.focusedLineNumber != null) {
-            useViewerStore.getState().scrollToLineRowIndex(snap.focusedLineNumber - 1, snap.activeSourceId!);
-          }
-        });
+        void useFileMonitorStore
+          .getState()
+          .selectFile(snap.activeSourceId)
+          .then(() => {
+            if (snap.focusedLineNumber != null) {
+              useViewerStore
+                .getState()
+                .scrollToLineRowIndex(snap.focusedLineNumber - 1, snap.activeSourceId!);
+            }
+          });
       }
 
       return {

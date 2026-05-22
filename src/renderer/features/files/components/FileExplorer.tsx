@@ -1,5 +1,5 @@
-import { useMemo, useState, type JSX } from 'react';
 import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Upload } from 'lucide-react';
+import { useMemo, useState, type JSX } from 'react';
 
 import { Badge } from '@renderer/components/ui/Badge';
 import { Tooltip } from '@renderer/components/ui/Tooltip';

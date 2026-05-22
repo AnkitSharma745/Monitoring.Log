@@ -13,11 +13,7 @@ export class DocumentEngine {
    * Parse a raw document (Markdown, plain text, or JSON) into structured chunks,
    * extracting metadata, keywords, rules, and troubleshooting symptoms.
    */
-  public static ingestDocument(
-    name: string,
-    content: string,
-    filePath?: string
-  ): IngestedDocument {
+  public static ingestDocument(name: string, content: string, filePath?: string): IngestedDocument {
     const id = `doc-${crypto.randomUUID()}`;
     const fileType = this.detectFileType(name, content);
     const ingestedAt = new Date().toISOString();
@@ -38,13 +34,13 @@ export class DocumentEngine {
         }
         if (parsed.chunks && Array.isArray(parsed.chunks)) {
           chunks.push(
-            ...parsed.chunks.map((c: any, index: number) => ({
+            ...parsed.chunks.map((c: { sectionTitle?: string; content?: string }, index: number) => ({
               id: `${id}-chunk-${index}`,
               documentId: id,
               sectionTitle: c.sectionTitle || 'Section',
               content: c.content || '',
               keywords: this.extractKeywords(c.content || ''),
-            }))
+            })),
           );
         } else {
           // Chunk the JSON content itself
@@ -56,7 +52,7 @@ export class DocumentEngine {
             keywords: this.extractKeywords(content),
           });
         }
-      } catch (err) {
+      } catch {
         // Fallback to text chunking if JSON is invalid
         this.chunkTextContent(id, content, chunks);
       }
@@ -95,7 +91,10 @@ export class DocumentEngine {
    */
   private static detectFileType(name: string, content: string): 'markdown' | 'text' | 'json' {
     const lowerName = name.toLowerCase();
-    if (lowerName.endsWith('.json') || (content.trim().startsWith('{') && content.trim().endsWith('}'))) {
+    if (
+      lowerName.endsWith('.json') ||
+      (content.trim().startsWith('{') && content.trim().endsWith('}'))
+    ) {
       return 'json';
     }
     if (lowerName.endsWith('.md') || content.includes('# ') || content.includes('## ')) {
@@ -112,7 +111,7 @@ export class DocumentEngine {
     content: string,
     chunks: DocumentChunk[],
     rules: ExtractedRule[],
-    symptoms: TroubleshootingSymptom[]
+    symptoms: TroubleshootingSymptom[],
   ): void {
     // 1. First, search for JSON blocks embedded in markdown that define rules/symptoms
     const jsonCodeBlockRegex = /```json\s*([\s\S]*?)\s*```/g;
@@ -152,19 +151,21 @@ export class DocumentEngine {
     }
 
     // 2. Also support inline block annotations like [RULE: ...] or [SYMPTOM: ...]
-    const ruleAnnotationRegex = /\[RULE:\s*id="([^"]+)"\s*name="([^"]+)"\s*category="([^"]+)"\s*pattern="([^"]+)"\s*expected="([^"]+)"(?:\s*severity="([^"]+)")?\]/g;
+    const ruleAnnotationRegex =
+      /\[RULE:\s*id="([^"]+)"\s*name="([^"]+)"\s*category="([^"]+)"\s*pattern="([^"]+)"\s*expected="([^"]+)"(?:\s*severity="([^"]+)")?\]/g;
     while ((match = ruleAnnotationRegex.exec(content)) !== null) {
       rules.push({
         ruleId: match[1]!,
         name: match[2]!,
-        category: (match[3] || 'system') as any,
+        category: (match[3] || 'system') as 'payment' | 'hardware' | 'network' | 'system',
         pattern: match[4]!,
         expectedBehavior: match[5]!,
-        severity: (match[6] || 'warn') as any,
+        severity: (match[6] || 'warn') as 'error' | 'warn',
       });
     }
 
-    const symptomAnnotationRegex = /\[SYMPTOM:\s*id="([^"]+)"\s*name="([^"]+)"\s*pattern="([^"]+)"\s*resolution="([^"]+)"\s*checklist="([^"]+)"\]/g;
+    const symptomAnnotationRegex =
+      /\[SYMPTOM:\s*id="([^"]+)"\s*name="([^"]+)"\s*pattern="([^"]+)"\s*resolution="([^"]+)"\s*checklist="([^"]+)"\]/g;
     while ((match = symptomAnnotationRegex.exec(content)) !== null) {
       symptoms.push({
         id: match[1]!,
@@ -231,7 +232,7 @@ export class DocumentEngine {
   private static chunkTextContent(
     documentId: string,
     content: string,
-    chunks: DocumentChunk[]
+    chunks: DocumentChunk[],
   ): void {
     const chunkSize = 800;
     const overlap = 150;
@@ -264,14 +265,95 @@ export class DocumentEngine {
 
     const words = cleanText.split(' ');
     const stopWords = new Set([
-      'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'at',
-      'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before',
-      'after', 'above', 'below', 'from', 'up', 'down', 'out', 'off', 'over', 'under', 'again',
-      'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any',
-      'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
-      'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'should',
-      'now', 'we', 'they', 'our', 'this', 'that', 'these', 'those', 'it', 'its', 'you', 'your',
-      'he', 'she', 'his', 'her', 'them', 'their'
+      'the',
+      'a',
+      'an',
+      'and',
+      'or',
+      'but',
+      'is',
+      'are',
+      'was',
+      'were',
+      'to',
+      'of',
+      'in',
+      'on',
+      'at',
+      'by',
+      'for',
+      'with',
+      'about',
+      'against',
+      'between',
+      'into',
+      'through',
+      'during',
+      'before',
+      'after',
+      'above',
+      'below',
+      'from',
+      'up',
+      'down',
+      'out',
+      'off',
+      'over',
+      'under',
+      'again',
+      'further',
+      'then',
+      'once',
+      'here',
+      'there',
+      'when',
+      'where',
+      'why',
+      'how',
+      'all',
+      'any',
+      'both',
+      'each',
+      'few',
+      'more',
+      'most',
+      'other',
+      'some',
+      'such',
+      'no',
+      'nor',
+      'not',
+      'only',
+      'own',
+      'same',
+      'so',
+      'than',
+      'too',
+      'very',
+      's',
+      't',
+      'can',
+      'will',
+      'just',
+      'should',
+      'now',
+      'we',
+      'they',
+      'our',
+      'this',
+      'that',
+      'these',
+      'those',
+      'it',
+      'its',
+      'you',
+      'your',
+      'he',
+      'she',
+      'his',
+      'her',
+      'them',
+      'their',
     ]);
 
     const wordCounts: Record<string, number> = {};
@@ -296,7 +378,16 @@ export class DocumentEngine {
     const lowercase = text.toLowerCase();
 
     // Peripherals
-    const peripherals = ['printer', 'scanner', 'bill acceptor', 'card reader', 'cashless terminal', 'usb device', 'serial port', 'com port'];
+    const peripherals = [
+      'printer',
+      'scanner',
+      'bill acceptor',
+      'card reader',
+      'cashless terminal',
+      'usb device',
+      'serial port',
+      'com port',
+    ];
     for (const p of peripherals) {
       if (lowercase.includes(p)) {
         entities.push({ name: p.charAt(0).toUpperCase() + p.slice(1), type: 'peripheral' });
@@ -304,7 +395,15 @@ export class DocumentEngine {
     }
 
     // Payment systems
-    const paymentEntities = ['merchant gateway', 'stripe', 'cashless', 'pos terminal', 'checkout flow', 'credit card', 'emv reader'];
+    const paymentEntities = [
+      'merchant gateway',
+      'stripe',
+      'cashless',
+      'pos terminal',
+      'checkout flow',
+      'credit card',
+      'emv reader',
+    ];
     for (const p of paymentEntities) {
       if (lowercase.includes(p)) {
         entities.push({ name: p.toUpperCase(), type: 'payment_system' });
@@ -312,10 +411,20 @@ export class DocumentEngine {
     }
 
     // State machine concepts
-    const lifecycle = ['watchdog', 'heartbeat', 'boot', 'ready state', 'reset sequence', 'power cycle'];
+    const lifecycle = [
+      'watchdog',
+      'heartbeat',
+      'boot',
+      'ready state',
+      'reset sequence',
+      'power cycle',
+    ];
     for (const l of lifecycle) {
       if (lowercase.includes(l)) {
-        entities.push({ name: l.charAt(0).toUpperCase() + l.slice(1), type: 'operational_lifecycle' });
+        entities.push({
+          name: l.charAt(0).toUpperCase() + l.slice(1),
+          type: 'operational_lifecycle',
+        });
       }
     }
 
@@ -334,12 +443,17 @@ export class DocumentEngine {
    */
   public static searchKnowledgeBase(
     documents: IngestedDocument[],
-    query: string
+    query: string,
   ): KnowledgeQueryResult[] {
     const queryKeywords = this.extractKeywords(query);
     if (queryKeywords.length === 0) {
       // Fallback: match simple substring of the query
-      queryKeywords.push(...query.toLowerCase().split(/\s+/).filter(w => w.length > 1));
+      queryKeywords.push(
+        ...query
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 1),
+      );
     }
 
     const results: KnowledgeQueryResult[] = [];
@@ -351,7 +465,8 @@ export class DocumentEngine {
 
         // 1. Keyword overlap scoring
         for (const word of queryKeywords) {
-          const occurrences = (chunkLower.match(new RegExp(this.escapeRegExp(word), 'g')) || []).length;
+          const occurrences = (chunkLower.match(new RegExp(this.escapeRegExp(word), 'g')) || [])
+            .length;
           if (occurrences > 0) {
             // Give higher weight if the word is in the section title
             const titleBoost = chunk.sectionTitle.toLowerCase().includes(word) ? 3 : 1;
@@ -383,7 +498,7 @@ export class DocumentEngine {
    */
   public static matchTroubleshootingSymptoms(
     entries: StructuredLogEntry[],
-    symptoms: TroubleshootingSymptom[]
+    symptoms: TroubleshootingSymptom[],
   ): TroubleshooterMatch[] {
     const matches: TroubleshooterMatch[] = [];
 
@@ -393,7 +508,7 @@ export class DocumentEngine {
       // Filter entries matching ANY of the symptom patterns
       for (const entry of entries) {
         const msg = (entry.message || entry.raw || '').toLowerCase();
-        
+
         const isMatch = symptom.symptomPatterns.every((pattern) => {
           // If pattern starts with regex symbols or slash, handle it, or standard substring
           const cleanPattern = pattern.trim().toLowerCase();
@@ -411,14 +526,14 @@ export class DocumentEngine {
 
       if (evidenceLinks.length > 0) {
         // Calculate matching confidence based on number of matches and patterns matching
-        const confidence = Math.min(0.5 + (evidenceLinks.length * 0.05), 0.98);
+        const confidence = Math.min(0.5 + evidenceLinks.length * 0.05, 0.98);
 
         matches.push({
           symptom: {
             ...symptom,
             matchedLogsCount: evidenceLinks.length,
-            matchedLogEntryIds: evidenceLinks.map(e => e.entryId),
-            matchedLogLines: evidenceLinks.map(e => e.lineNumber),
+            matchedLogEntryIds: evidenceLinks.map((e) => e.entryId),
+            matchedLogLines: evidenceLinks.map((e) => e.lineNumber),
           },
           confidence,
           matchedEntriesCount: evidenceLinks.length,

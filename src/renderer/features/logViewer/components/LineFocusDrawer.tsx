@@ -13,7 +13,7 @@ import { useSettingsStore } from '@renderer/stores/settingsStore';
 import { useViewerStore } from '@renderer/stores/viewerStore';
 
 interface JsonTreeProps {
-  data: any;
+  data: unknown;
   label?: string;
   depth?: number;
 }
@@ -22,6 +22,7 @@ export const JsonTree = ({ data, label, depth = 0 }: JsonTreeProps): React.JSX.E
   const [isExpanded, setIsExpanded] = useState(depth < 2);
 
   const isObject = data !== null && typeof data === 'object';
+  const obj = isObject ? (data as Record<string, unknown>) : null;
   const indentClass = depth > 0 ? 'ml-3' : '';
 
   if (!isObject) {
@@ -58,7 +59,7 @@ export const JsonTree = ({ data, label, depth = 0 }: JsonTreeProps): React.JSX.E
   }
 
   const isArray = Array.isArray(data);
-  const keys = Object.keys(data);
+  const keys = obj ? Object.keys(obj) : [];
   const size = keys.length;
 
   if (size === 0) {
@@ -92,7 +93,7 @@ export const JsonTree = ({ data, label, depth = 0 }: JsonTreeProps): React.JSX.E
       {isExpanded && (
         <div className="pl-2 border-l border-line/30 ml-1.5 mt-0.5 space-y-0.5">
           {keys.map((key) => (
-            <JsonTree key={key} data={data[key]} label={key} depth={depth + 1} />
+            <JsonTree key={key} data={obj ? obj[key] : undefined} label={key} depth={depth + 1} />
           ))}
         </div>
       )}

@@ -3,10 +3,10 @@ import { create } from 'zustand';
 export interface OverlayStoreState {
   isCommandPaletteOpen: boolean;
   activeDialog: string | null;
-  dialogProps: any;
+  dialogProps: Record<string, unknown> | null;
   openCommandPalette: () => void;
   closeCommandPalette: () => void;
-  showDialog: (dialogId: string, props?: any) => void;
+  showDialog: (dialogId: string, props?: Record<string, unknown> | null) => void;
   closeDialog: () => void;
 }
 

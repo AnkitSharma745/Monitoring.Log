@@ -15,6 +15,8 @@ export interface ViewerPreferences {
   severityFilters: Record<LogSeverity, boolean>;
   includeFilter: string;
   excludeFilter: string;
+  enableHeuristicHints: boolean;
+  showIngestionTrace: boolean;
 }
 
 const createEnabledSeverityFilters = (): Record<LogSeverity, boolean> => {
@@ -38,6 +40,8 @@ const createDefaultPreferences = (): ViewerPreferences => {
     severityFilters: createEnabledSeverityFilters(),
     includeFilter: '',
     excludeFilter: '',
+    enableHeuristicHints: true,
+    showIngestionTrace: true,
   };
 };
 
@@ -60,6 +64,8 @@ interface SettingsStoreState {
   toggleCompactMode: () => void;
   toggleCollapseRepeatedLogs: () => void;
   toggleSeverityFilter: (severity: LogSeverity) => void;
+  toggleEnableHeuristicHints: () => void;
+  toggleShowIngestionTrace: () => void;
   setIncludeFilter: (val: string) => void;
   setExcludeFilter: (val: string) => void;
   resetLogFilters: () => void;
@@ -193,6 +199,24 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
     }));
   },
 
+  toggleEnableHeuristicHints: (): void => {
+    set((state) => ({
+      preferences: {
+        ...state.preferences,
+        enableHeuristicHints: !state.preferences.enableHeuristicHints,
+      },
+    }));
+  },
+
+  toggleShowIngestionTrace: (): void => {
+    set((state) => ({
+      preferences: {
+        ...state.preferences,
+        showIngestionTrace: !state.preferences.showIngestionTrace,
+      },
+    }));
+  },
+
   setIncludeFilter: (val): void => {
     set((state) => ({
       preferences: { ...state.preferences, includeFilter: val },
@@ -213,6 +237,8 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
         severityFilters: createEnabledSeverityFilters(),
         includeFilter: '',
         excludeFilter: '',
+        enableHeuristicHints: true,
+        showIngestionTrace: true,
       },
     }));
   },

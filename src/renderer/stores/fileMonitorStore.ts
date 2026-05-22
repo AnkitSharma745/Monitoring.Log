@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 
 import { useActivityStore } from './activityStore';
+import { normalizePath } from './pathUtils';
 import { useSearchStore } from './searchStore';
 import { useSettingsStore } from './settingsStore';
 import { useViewerStore } from './viewerStore';
 import { useWatcherStore } from './watcherStore';
 import { useWorkspaceStore } from './workspaceStore';
-import { normalizePath } from './pathUtils';
 import type { LogSeverity } from '@renderer/features/logViewer/logParsing';
 import type {
   DirectoryScanResult,
@@ -59,6 +59,8 @@ export interface ViewerPreferences {
   severityFilters: Record<LogSeverity, boolean>;
   includeFilter: string;
   excludeFilter: string;
+  enableHeuristicHints: boolean;
+  showIngestionTrace: boolean;
 }
 
 export type ThemeMode = 'light' | 'dark';
@@ -186,6 +188,8 @@ const createDefaultPreferences = (): ViewerPreferences => {
     severityFilters: createEnabledSeverityFilters(),
     includeFilter: '',
     excludeFilter: '',
+    enableHeuristicHints: true,
+    showIngestionTrace: true,
   };
 };
 
@@ -487,7 +491,9 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
 
   removeDirectory: (dirPath: string): void => {
     const normalizedDirPath = normalizePath(dirPath);
-    const directory = useWorkspaceStore.getState().directories.find((d) => normalizePath(d.root.path) === normalizedDirPath);
+    const directory = useWorkspaceStore
+      .getState()
+      .directories.find((d) => normalizePath(d.root.path) === normalizedDirPath);
     if (directory) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const getAllFilePaths = (node: any): string[] => {
@@ -506,13 +512,15 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
       }
     }
 
-    useWorkspaceStore.getState().removeDirectory(normalizedDirPath, get().selectedFilePath, (path) => {
-      if (path) {
-        void get().selectFile(normalizePath(path));
-      } else {
-        useViewerStore.setState({ selectedFilePath: null });
-      }
-    });
+    useWorkspaceStore
+      .getState()
+      .removeDirectory(normalizedDirPath, get().selectedFilePath, (path) => {
+        if (path) {
+          void get().selectFile(normalizePath(path));
+        } else {
+          useViewerStore.setState({ selectedFilePath: null });
+        }
+      });
   },
 
   pinTab: (filePath: string): void => {
@@ -538,7 +546,9 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
         searchQuery: persisted.searchQuery ?? '',
       });
 
-      const normalizedSelectedFilePath = persisted.selectedFilePath ? normalizePath(persisted.selectedFilePath) : null;
+      const normalizedSelectedFilePath = persisted.selectedFilePath
+        ? normalizePath(persisted.selectedFilePath)
+        : null;
 
       // Set viewerStore state FIRST to avoid subscription race where selectedFilePath gets overwritten with null
       useViewerStore.setState({ selectedFilePath: normalizedSelectedFilePath });

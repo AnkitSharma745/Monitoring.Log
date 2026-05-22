@@ -3,11 +3,12 @@ import React from 'react';
 import { ActivityPanel } from '../features/activity/components/ActivityPanel';
 import { FileExplorer } from '../features/files/components/FileExplorer';
 import { Sidebar } from '../features/layout/components/Sidebar';
+import { AiEvidencePanel } from '../features/workbench/components/AiEvidencePanel';
 import { DiagnosticsPanel } from '../features/workbench/components/DiagnosticsPanel';
 import { InvestigationsPanel } from '../features/workbench/components/InvestigationsPanel';
+import { KnowledgePanel } from '../features/workbench/components/KnowledgePanel';
 import { SearchPanel } from '../features/workbench/components/SearchPanel';
 import { TimelinePanel } from '../features/workbench/components/TimelinePanel';
-import { KnowledgePanel } from '../features/workbench/components/KnowledgePanel';
 import { WorkbenchPlaceholder } from '../features/workbench/components/WorkbenchPlaceholder';
 import {
   useWorkbenchStore,
@@ -18,25 +19,24 @@ import { useDiagnosticsStore } from '../stores/diagnosticsStore';
 import { useFileMonitorStore } from '../stores/fileMonitorStore';
 import { useOverlayStore } from '../stores/overlayStore';
 
-
 // ==========================================
 // 1. VIEW REGISTRY SERVICE
 // ==========================================
 export interface ViewContribution {
   id: string;
   title: string;
-  component: React.ComponentType<any>;
+  component: React.ComponentType;
 }
 
 class ViewRegistryServiceImpl {
   private sidePanels = new Map<string, ViewContribution>();
   private bottomPanels = new Map<string, ViewContribution>();
 
-  registerSidePanel(id: string, title: string, component: React.ComponentType<any>): void {
+  registerSidePanel(id: string, title: string, component: React.ComponentType): void {
     this.sidePanels.set(id, { id, title, component });
   }
 
-  registerBottomPanel(id: string, title: string, component: React.ComponentType<any>): void {
+  registerBottomPanel(id: string, title: string, component: React.ComponentType): void {
     this.bottomPanels.set(id, { id, title, component });
   }
 
@@ -67,7 +67,7 @@ export interface CommandContribution {
   title: string;
   category: string;
   shortcut?: string;
-  handler: (...args: any[]) => void | Promise<void>;
+  handler: (...args: unknown[]) => void | Promise<void>;
 }
 
 class CommandServiceImpl {
@@ -77,7 +77,7 @@ class CommandServiceImpl {
     this.commands.set(command.id, command);
   }
 
-  async executeCommand(id: string, ...args: any[]): Promise<any> {
+  async executeCommand(id: string, ...args: unknown[]): Promise<unknown> {
     const command = this.commands.get(id);
     if (!command) {
       console.warn(`Command "${id}" is not registered.`);
@@ -251,7 +251,7 @@ export const OverlayService = {
   closeCommandPalette(): void {
     useOverlayStore.getState().closeCommandPalette();
   },
-  showDialog(dialogId: string, props?: any): void {
+  showDialog(dialogId: string, props?: Record<string, unknown> | null): void {
     useOverlayStore.getState().showDialog(dialogId, props);
   },
   closeDialog(): void {
@@ -276,9 +276,7 @@ export const initializeWorkbench = (): void => {
     React.createElement(WorkbenchPlaceholder, { title: 'Problems' }),
   );
   ViewRegistryService.registerBottomPanel('activity', 'Activity', ActivityPanel);
-  ViewRegistryService.registerBottomPanel('aiEvidence', 'AI Evidence', () =>
-    React.createElement(WorkbenchPlaceholder, { title: 'AI Evidence' }),
-  );
+  ViewRegistryService.registerBottomPanel('aiEvidence', 'AI Evidence', AiEvidencePanel);
   ViewRegistryService.registerBottomPanel('timeline', 'Timeline', TimelinePanel);
   ViewRegistryService.registerBottomPanel('output', 'Output', () =>
     React.createElement(WorkbenchPlaceholder, { title: 'Output' }),

@@ -24,10 +24,6 @@ export const CommandPalette = (): React.JSX.Element => {
     );
   }, [query, commands]);
 
-  // Keep index clamp-safe when query changes filtered count
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [filteredCommands]);
 
   // Autofocus input on mount
   useEffect(() => {
@@ -81,7 +77,10 @@ export const CommandPalette = (): React.JSX.Element => {
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelectedIndex(0);
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Type a command to execute..."
             className="flex-1 h-full bg-transparent text-sm text-readable placeholder-muted outline-none border-none"

@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { useDiagnosticsStore } from '@renderer/stores/diagnosticsStore';
 import { Trash2, ShieldAlert, Cpu, HardDrive, PlayCircle } from 'lucide-react';
+import { useMemo } from 'react';
 import { Button } from '@renderer/components/ui/Button';
+import { useDiagnosticsStore } from '@renderer/stores/diagnosticsStore';
+import type React from 'react';
 
 export const DiagnosticsPanel = (): React.JSX.Element => {
   const events = useDiagnosticsStore((state) => state.events);

@@ -25,6 +25,25 @@ export interface RecentSourceItem {
   lastOpenedAt: string;
 }
 
+export interface PersistedWorkspaceState {
+  openTabs?: Array<{
+    filePath: string;
+    pinned?: boolean;
+    unreadCount?: number;
+    openedAt?: string;
+    lastViewedAt?: string;
+    scrollTop?: number;
+  }>;
+  recentSources?: Array<{
+    path: string;
+    name: string;
+    kind: 'file' | 'directory';
+    lastOpenedAt: string;
+  }>;
+  selectedFilePath?: string | null;
+  watchedFilePaths?: string[];
+}
+
 interface WorkspaceStoreState {
   directories: DirectoryScanResult[];
   filesByPath: Record<string, LogFileMetadata>;
@@ -71,8 +90,7 @@ interface WorkspaceStoreState {
   clearWorkspaceHistory: () => void;
 
   restoreWorkspaceState: (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    persisted: any,
+    persisted: PersistedWorkspaceState,
     loadFile: (path: string) => Promise<unknown>,
     startWatching: (path: string) => Promise<void>,
   ) => void;
@@ -328,7 +346,9 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     }
 
     set((state) => {
-      const nextTabs = state.openTabs.filter((item) => normalizePath(item.filePath) !== normalizedFilePath);
+      const nextTabs = state.openTabs.filter(
+        (item) => normalizePath(item.filePath) !== normalizedFilePath,
+      );
       const nextSelected =
         normalizedSelectedFilePath === normalizedFilePath
           ? (nextTabs.at(-1)?.filePath ?? null)
@@ -351,8 +371,12 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
       const filesByPath = { ...state.filesByPath };
       delete filesByPath[normalizedFilePath];
 
-      const openTabs = state.openTabs.filter((tab) => normalizePath(tab.filePath) !== normalizedFilePath);
-      const recentSources = state.recentSources.filter((src) => normalizePath(src.path) !== normalizedFilePath);
+      const openTabs = state.openTabs.filter(
+        (tab) => normalizePath(tab.filePath) !== normalizedFilePath,
+      );
+      const recentSources = state.recentSources.filter(
+        (src) => normalizePath(src.path) !== normalizedFilePath,
+      );
 
       const nextSelected =
         normalizedSelectedFilePath === normalizedFilePath
@@ -375,7 +399,9 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     const normalizedSelectedFilePath = normalizePath(selectedFilePath);
 
     set((state) => {
-      const directory = state.directories.find((d) => normalizePath(d.root.path) === normalizedDirPath);
+      const directory = state.directories.find(
+        (d) => normalizePath(d.root.path) === normalizedDirPath,
+      );
       if (!directory) {
         return state;
       }
@@ -400,10 +426,16 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         delete filesByPath[filePath];
       }
 
-      const directories = state.directories.filter((d) => normalizePath(d.root.path) !== normalizedDirPath);
-      const openTabs = state.openTabs.filter((tab) => !filePathsToRemove.has(normalizePath(tab.filePath)));
+      const directories = state.directories.filter(
+        (d) => normalizePath(d.root.path) !== normalizedDirPath,
+      );
+      const openTabs = state.openTabs.filter(
+        (tab) => !filePathsToRemove.has(normalizePath(tab.filePath)),
+      );
       const recentSources = state.recentSources.filter(
-        (src) => normalizePath(src.path) !== normalizedDirPath && !filePathsToRemove.has(normalizePath(src.path)),
+        (src) =>
+          normalizePath(src.path) !== normalizedDirPath &&
+          !filePathsToRemove.has(normalizePath(src.path)),
       );
 
       const nextSelected =
@@ -456,16 +488,24 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   restoreWorkspaceState: (persisted, loadFile, startWatching): void => {
-    const normalizedOpenTabs = (persisted.openTabs ?? []).map((tab: any) => ({
-      ...tab,
+    const normalizedOpenTabs = (persisted.openTabs ?? []).map((tab) => ({
       filePath: normalizePath(tab.filePath),
+      pinned: tab.pinned ?? false,
+      unreadCount: tab.unreadCount ?? 0,
+      openedAt: tab.openedAt ?? new Date().toISOString(),
+      lastViewedAt: tab.lastViewedAt ?? new Date().toISOString(),
+      scrollTop: tab.scrollTop ?? 0,
     }));
-    const normalizedRecentSources = (persisted.recentSources ?? []).map((src: any) => ({
+    const normalizedRecentSources = (persisted.recentSources ?? []).map((src) => ({
       ...src,
       path: normalizePath(src.path),
     }));
-    const normalizedSelectedFilePath = persisted.selectedFilePath ? normalizePath(persisted.selectedFilePath) : null;
-    const normalizedWatchedFilePaths = (persisted.watchedFilePaths ?? []).map((p: string) => normalizePath(p));
+    const normalizedSelectedFilePath = persisted.selectedFilePath
+      ? normalizePath(persisted.selectedFilePath)
+      : null;
+    const normalizedWatchedFilePaths = (persisted.watchedFilePaths ?? []).map((p: string) =>
+      normalizePath(p),
+    );
 
     set({
       openTabs: normalizedOpenTabs,
@@ -513,7 +553,10 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         normalizePath(tab.filePath) === normalizedFilePath
           ? {
               ...tab,
-              unreadCount: normalizedActiveFilePath === normalizedFilePath ? 0 : tab.unreadCount + newLinesCount,
+              unreadCount:
+                normalizedActiveFilePath === normalizedFilePath
+                  ? 0
+                  : tab.unreadCount + newLinesCount,
             }
           : tab,
       ),

@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
 import { Search, History, FileText, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
-import { useSearchStore } from '@renderer/stores/searchStore';
-import { useWorkspaceStore } from '@renderer/stores/workspaceStore';
-import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
-import { useViewerStore } from '@renderer/stores/viewerStore';
+import { useState, useEffect, useMemo } from 'react';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
+import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
+import { useSearchStore } from '@renderer/stores/searchStore';
+import { useViewerStore } from '@renderer/stores/viewerStore';
+import { useWorkspaceStore } from '@renderer/stores/workspaceStore';
 import type { SearchMatch } from '@shared/contracts/search';
+import type React from 'react';
 
 export const SearchPanel = (): React.JSX.Element => {
   const searchQuery = useSearchStore((state) => state.searchQuery);
@@ -30,12 +31,14 @@ export const SearchPanel = (): React.JSX.Element => {
   // Trigger workspace search when query or options or tabs change
   useEffect(() => {
     if (!searchQuery.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults([]);
       return;
     }
 
     const sourceIds = openTabs.map((t) => t.filePath);
     if (sourceIds.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults([]);
       return;
     }
@@ -112,14 +115,17 @@ export const SearchPanel = (): React.JSX.Element => {
   };
 
   // Safe highlighted rendering for search results preview
-  const renderHighlightedSnippet = (text: string, ranges: SearchMatch['matchRanges']): React.JSX.Element => {
+  const renderHighlightedSnippet = (
+    text: string,
+    ranges: SearchMatch['matchRanges'],
+  ): React.JSX.Element => {
     if (!ranges || ranges.length === 0 || !text) {
       return <span className="text-[10px] font-mono text-subtle">{text || ''}</span>;
     }
 
     const elements: React.ReactNode[] = [];
     let lastIdx = 0;
-    
+
     // Sort ranges by start column
     const sortedRanges = [...ranges].sort((a, b) => a.startColumn - b.startColumn);
 
@@ -131,7 +137,7 @@ export const SearchPanel = (): React.JSX.Element => {
         elements.push(
           <span key={`text-${idx}`} className="text-subtle font-mono text-[10px]">
             {text.substring(lastIdx, start)}
-          </span>
+          </span>,
         );
       }
 
@@ -141,9 +147,9 @@ export const SearchPanel = (): React.JSX.Element => {
           className="bg-accent/40 text-accent font-bold font-mono text-[10px] px-[1px] rounded-[2px]"
         >
           {text.substring(start, end)}
-        </mark>
+        </mark>,
       );
-      
+
       lastIdx = end;
     });
 
@@ -151,7 +157,7 @@ export const SearchPanel = (): React.JSX.Element => {
       elements.push(
         <span key="text-end" className="text-subtle font-mono text-[10px]">
           {text.substring(lastIdx)}
-        </span>
+        </span>,
       );
     }
 
@@ -163,7 +169,9 @@ export const SearchPanel = (): React.JSX.Element => {
       {/* Search Header and Inputs */}
       <div className="border-b border-line p-2.5 space-y-2 bg-ink-950/60">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-accent uppercase tracking-wider">Workspace Search</span>
+          <span className="text-[10px] font-bold text-accent uppercase tracking-wider">
+            Workspace Search
+          </span>
           <div className="relative">
             <button
               onClick={() => setIsHistoryOpen(!isHistoryOpen)}
@@ -176,7 +184,12 @@ export const SearchPanel = (): React.JSX.Element => {
               <div className="absolute right-0 top-6 z-50 w-52 rounded border border-line bg-ink-950 shadow-2xl p-1 text-[10px] space-y-0.5">
                 <div className="flex justify-between items-center px-1.5 py-1 border-b border-line mb-1 text-subtle font-bold">
                   <span>RECENT SEARCHES</span>
-                  <button onClick={clearSearchHistory} className="text-danger hover:text-danger-light">Clear</button>
+                  <button
+                    onClick={clearSearchHistory}
+                    className="text-danger hover:text-danger-light"
+                  >
+                    Clear
+                  </button>
                 </div>
                 {searchHistory.length === 0 ? (
                   <div className="p-2 text-subtle italic text-center">No history yet</div>
@@ -260,9 +273,13 @@ export const SearchPanel = (): React.JSX.Element => {
             <span className="text-[10px]">Searching logs off-thread...</span>
           </div>
         ) : searchQuery && results.length === 0 ? (
-          <div className="text-center text-subtle text-[10px] py-10">No matches found in open workspace files.</div>
+          <div className="text-center text-subtle text-[10px] py-10">
+            No matches found in open workspace files.
+          </div>
         ) : !searchQuery ? (
-          <div className="text-center text-subtle text-[10px] py-10 italic">Type a query to search logs.</div>
+          <div className="text-center text-subtle text-[10px] py-10 italic">
+            Type a query to search logs.
+          </div>
         ) : (
           <div className="space-y-1.5">
             <div className="text-[9px] text-subtle font-bold px-1 uppercase mb-2">
@@ -274,7 +291,10 @@ export const SearchPanel = (): React.JSX.Element => {
               const isCollapsed = collapsedFiles[filePath] ?? false;
 
               return (
-                <div key={filePath} className="border border-line rounded bg-ink-950/20 overflow-hidden">
+                <div
+                  key={filePath}
+                  className="border border-line rounded bg-ink-950/20 overflow-hidden"
+                >
                   {/* File Header */}
                   <div
                     onClick={() => toggleFileCollapse(filePath)}
@@ -282,14 +302,21 @@ export const SearchPanel = (): React.JSX.Element => {
                   >
                     <div className="flex items-center gap-1.5 min-w-0">
                       <FileText size={12} className="text-accent shrink-0" />
-                      <span className="text-[10px] font-bold truncate text-readable" title={filePath}>
+                      <span
+                        className="text-[10px] font-bold truncate text-readable"
+                        title={filePath}
+                      >
                         {basename}
                       </span>
                       <span className="text-[9px] bg-ink-900 border border-line text-subtle px-1 rounded-full shrink-0">
                         {matches.length}
                       </span>
                     </div>
-                    {isCollapsed ? <ChevronRight size={12} className="text-subtle" /> : <ChevronDown size={12} className="text-subtle" />}
+                    {isCollapsed ? (
+                      <ChevronRight size={12} className="text-subtle" />
+                    ) : (
+                      <ChevronDown size={12} className="text-subtle" />
+                    )}
                   </div>
 
                   {/* Matches List */}

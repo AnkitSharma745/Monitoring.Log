@@ -16,7 +16,9 @@ interface SearchStoreState {
   isCaseSensitive: boolean;
   isWholeWord: boolean;
   setSearchQuery: (query: string) => void;
-  setSearchOptions: (opts: Partial<{ isRegex: boolean; isCaseSensitive: boolean; isWholeWord: boolean }>) => void;
+  setSearchOptions: (
+    opts: Partial<{ isRegex: boolean; isCaseSensitive: boolean; isWholeWord: boolean }>,
+  ) => void;
   selectNextSearchMatch: () => void;
   selectPreviousSearchMatch: () => void;
   saveCurrentSearch: () => void;
@@ -48,7 +50,8 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
   selectNextSearchMatch: (): void => {
     const activeFilePath = useViewerStore.getState().selectedFilePath;
     if (!activeFilePath) return;
-    const matchedIndices = useViewerStore.getState().viewportMatchedIndicesByPath[activeFilePath] ?? [];
+    const matchedIndices =
+      useViewerStore.getState().viewportMatchedIndicesByPath[activeFilePath] ?? [];
     const total = matchedIndices.length;
     if (total === 0) return;
     set((state) => {
@@ -62,7 +65,8 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
   selectPreviousSearchMatch: (): void => {
     const activeFilePath = useViewerStore.getState().selectedFilePath;
     if (!activeFilePath) return;
-    const matchedIndices = useViewerStore.getState().viewportMatchedIndicesByPath[activeFilePath] ?? [];
+    const matchedIndices =
+      useViewerStore.getState().viewportMatchedIndicesByPath[activeFilePath] ?? [];
     const total = matchedIndices.length;
     if (total === 0) return;
     set((state) => {

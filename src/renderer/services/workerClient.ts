@@ -27,7 +27,7 @@ export const createEngineWorkerClient = (): EngineWorkerClient => {
     string,
     {
       resolve: (value: EngineWorkerResponse) => void;
-      reject: (reason: any) => void;
+      reject: (reason: unknown) => void;
     }
   >();
 
@@ -86,7 +86,7 @@ export const createEngineWorkerClient = (): EngineWorkerClient => {
     terminate: () => {
       try {
         worker.terminate();
-      } catch (e) {
+      } catch {
         // ignore
       }
       pendingRequests.clear();

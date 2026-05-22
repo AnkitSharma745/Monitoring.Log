@@ -1,14 +1,15 @@
 import { buildEvidencePack } from '@core/ai/evidencePackBuilder';
+import { InvestigationAssistantEngine } from '@core/ai/investigationAssistantEngine';
+
 import { InMemoryLogIndex } from '@core/indexing/logIndex';
 import { OperationalCorrelationEngine } from '@core/investigation/correlationEngine';
+import { DocumentEngine } from '@core/knowledge/documentEngine';
 import { parseChunk } from '@core/parsing/parserEngine';
 import type { EngineWorkerRequest, EngineWorkerResponse } from './workerProtocol';
-import { DocumentEngine } from '@core/knowledge/documentEngine';
 import type { IngestedDocument } from '@shared/contracts/knowledge';
 
 const logIndex = new InMemoryLogIndex();
 const ingestedDocuments: IngestedDocument[] = [];
-
 
 export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineWorkerResponse => {
   try {
@@ -118,7 +119,11 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       return {
         type: 'validateDomainRules:done',
         requestId: request.requestId,
-        results: OperationalCorrelationEngine.validateDomainRules(request.sourceId, entries, customRules),
+        results: OperationalCorrelationEngine.validateDomainRules(
+          request.sourceId,
+          entries,
+          customRules,
+        ),
       };
     }
 
@@ -158,6 +163,54 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       };
     }
 
+    if (request.type === 'searchSemanticAssist') {
+      const results = logIndex.searchSemanticAssist(request.sourceId, request.query);
+      return {
+        type: 'searchSemanticAssist:done',
+        requestId: request.requestId,
+        results,
+      };
+    }
+
+    if (request.type === 'findSimilarIncidents') {
+      const entries = logIndex.getEntries(request.sourceId);
+      const incidents = OperationalCorrelationEngine.detectIncidents(request.sourceId, entries);
+      const similar = logIndex.findSimilarIncidents(
+        request.sourceId,
+        request.incidentId,
+        incidents,
+      );
+      return {
+        type: 'findSimilarIncidents:done',
+        requestId: request.requestId,
+        incidents: similar,
+      };
+    }
+
+    if (request.type === 'runInvestigationAssist') {
+      const sourceId = request.evidencePack.entries[0]?.sourceId || '';
+      const entries = logIndex.getEntries(sourceId);
+      const activeIncidents = OperationalCorrelationEngine.detectIncidents(sourceId, entries);
+      const validatedRules = OperationalCorrelationEngine.validateDomainRules(
+        sourceId,
+        entries,
+        ingestedDocuments.flatMap((d) => d.rules),
+      );
+
+      const response = InvestigationAssistantEngine.analyzeEvidence({
+        evidencePack: request.evidencePack,
+        ingestedDocuments,
+        activeIncidents,
+        validatedRules,
+      });
+
+      return {
+        type: 'runInvestigationAssist:done',
+        requestId: request.requestId,
+        response,
+      };
+    }
+
     if (request.type === 'buildEvidencePack') {
       return {
         type: 'buildEvidencePack:done',
@@ -170,15 +223,17 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       };
     }
 
+    const req = request as unknown as { requestId: string };
     return {
       type: 'error',
-      requestId: (request as any).requestId,
+      requestId: req.requestId,
       message: 'Unknown request action.',
     };
   } catch (error) {
+    const req = request as unknown as { requestId: string };
     return {
       type: 'error',
-      requestId: (request as any).requestId,
+      requestId: req.requestId,
       message: error instanceof Error ? error.message : 'Unknown engine worker error.',
     };
   }

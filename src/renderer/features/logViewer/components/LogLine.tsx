@@ -54,7 +54,8 @@ export const LogLine = ({
     const bList = state.investigationsById[activeId]?.bookmarks;
     if (!bList) return null;
     const found = bList.find(
-      (b) => b.entryId === entry.id || (b.lineNumber === entry.lineNumber && b.sourceId === sourceId)
+      (b) =>
+        b.entryId === entry.id || (b.lineNumber === entry.lineNumber && b.sourceId === sourceId),
     );
     return found ? found.id : null;
   });

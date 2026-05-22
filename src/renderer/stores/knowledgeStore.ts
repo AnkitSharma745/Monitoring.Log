@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
-import type { EngineWorkerRequest } from '@workers/workerProtocol';
 import type {
   IngestedDocument,
   TroubleshooterMatch,
   KnowledgeQueryResult,
 } from '@shared/contracts/knowledge';
+import type { EngineWorkerRequest } from '@workers/workerProtocol';
 
 export interface KnowledgeStoreState {
   ingestedDocuments: IngestedDocument[];
@@ -15,7 +15,11 @@ export interface KnowledgeStoreState {
   activeSymptomMatch: TroubleshooterMatch | null;
   searchTerm: string;
 
-  ingestDocument: (name: string, content: string, filePath?: string) => Promise<IngestedDocument | null>;
+  ingestDocument: (
+    name: string,
+    content: string,
+    filePath?: string,
+  ) => Promise<IngestedDocument | null>;
   queryKnowledge: (query: string) => Promise<void>;
   fetchTroubleshooterMatches: (sourceId: string) => Promise<void>;
   setActiveSymptomMatch: (match: TroubleshooterMatch | null) => void;
@@ -31,12 +35,16 @@ export const useKnowledgeStore = create<KnowledgeStoreState>((set) => ({
   activeSymptomMatch: null,
   searchTerm: '',
 
-  ingestDocument: async (name: string, content: string, filePath?: string): Promise<IngestedDocument | null> => {
+  ingestDocument: async (
+    name: string,
+    content: string,
+    filePath?: string,
+  ): Promise<IngestedDocument | null> => {
     set({ loading: true });
     try {
       const workerClient = getEngineWorkerClient();
       const requestId = `ingest:${name}:${Date.now()}`;
-      
+
       const payload: EngineWorkerRequest = {
         type: 'ingestDocument',
         requestId,
@@ -121,7 +129,8 @@ export const useKnowledgeStore = create<KnowledgeStoreState>((set) => ({
           const prevActive = state.activeSymptomMatch;
           let nextActive = null;
           if (prevActive) {
-            nextActive = response.matches.find((m) => m.symptom.id === prevActive.symptom.id) || null;
+            nextActive =
+              response.matches.find((m) => m.symptom.id === prevActive.symptom.id) || null;
           }
           // Default to the first match if nothing is selected yet
           if (!nextActive && response.matches.length > 0) {

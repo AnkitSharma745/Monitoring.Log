@@ -2,9 +2,9 @@ import { GripVertical } from 'lucide-react';
 import { useCallback, useMemo, type JSX, type PointerEvent } from 'react';
 
 import { Button } from '@renderer/components/ui/Button';
+import { ViewRegistryService } from '@renderer/services/workbenchServices';
 import { useWorkbenchStore, type WorkbenchSidePanel } from '../workbenchStore';
 import { WorkbenchPlaceholder } from './WorkbenchPlaceholder';
-import { ViewRegistryService } from '@renderer/services/workbenchServices';
 
 const panelTitles: Record<WorkbenchSidePanel, string> = {
   explorer: 'Explorer',

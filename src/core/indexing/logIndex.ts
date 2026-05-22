@@ -1,21 +1,11 @@
-import type { StructuredLogEntry, VisibleLogWindow } from '@shared/contracts/logs';
+import type { Incident } from '@shared/contracts/investigations';
+import type { StructuredLogEntry, VisibleLogWindow, CorrelationSequence } from '@shared/contracts/logs';
 import type { SearchMatch, SearchQuery, SearchResult } from '@shared/contracts/search';
 
 export interface LogIndexSnapshot {
   sourceId: string;
   entryCount: number;
   indexedAt: string;
-}
-
-export interface CorrelationSequence {
-  id: string;
-  field: 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId';
-  value: string;
-  entries: StructuredLogEntry[];
-  startTime: string | null;
-  endTime: string | null;
-  durationMs: number | null;
-  hasErrors: boolean;
 }
 
 export class InMemoryLogIndex {
@@ -463,6 +453,88 @@ export class InMemoryLogIndex {
     }
 
     return patterns;
+  }
+
+  public searchSemanticAssist(sourceId: string, query: string): StructuredLogEntry[] {
+    const entries = this.entriesBySource.get(sourceId) ?? [];
+    const queryTokens = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    if (queryTokens.length === 0) return [];
+
+    const scored = entries.map((entry) => {
+      let score = 0;
+      const msg = (entry.message || entry.raw || '').toLowerCase();
+
+      // 1. Substring bonus
+      if (msg.includes(query.toLowerCase())) {
+        score += 100;
+      }
+
+      // 2. Keyword intersections
+      for (const token of queryTokens) {
+        if (msg.includes(token)) {
+          score += 15;
+        }
+      }
+
+      // 3. Severity boosts
+      if (score > 0) {
+        if (entry.severity === 'error') score += 30;
+        if (entry.severity === 'warn') score += 15;
+      }
+
+      return { entry, score };
+    });
+
+    return scored
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20)
+      .map((s) => s.entry);
+  }
+
+  public findSimilarIncidents(_sourceId: string, incidentId: string, incidents: Incident[]): Incident[] {
+    const active = incidents.find((inc) => inc.id === incidentId);
+    if (!active) return [];
+
+    const activeTokens = (active.description || '')
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w: string) => w.length > 2);
+
+    const scored = incidents
+      .filter((inc) => inc.id !== incidentId)
+      .map((inc) => {
+        let score = 0;
+
+        // 1. Category match bonus
+        if (inc.category === active.category) {
+          score += 60;
+        }
+
+        // 2. Severity match bonus
+        if (inc.severity === active.severity) {
+          score += 20;
+        }
+
+        // 3. Description tokens match
+        const incDesc = (inc.description || '').toLowerCase();
+        for (const token of activeTokens) {
+          if (incDesc.includes(token)) {
+            score += 15;
+          }
+        }
+
+        return { incident: inc, score };
+      });
+
+    return scored
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map((s) => s.incident);
   }
 }
 

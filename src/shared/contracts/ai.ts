@@ -20,13 +20,24 @@ export interface AiCitation {
   label: string;
 }
 
+export type EvidenceStrength = 'high' | 'medium' | 'low';
+export type FindingCategory = 'deterministic' | 'assisted';
+
 export interface AiEvidenceResponse {
   id: string;
   evidencePackId: string;
   summary: string;
   observedFacts: string[];
-  probableInterpretations: string[];
+  possibleCorrelations: string[];
   missingEvidence: string[];
+  evidenceStrength: EvidenceStrength;
+  findingCategory: FindingCategory;
+  sourcesCount: {
+    logs: number;
+    rules: number;
+    symptoms: number;
+  };
   citations: AiCitation[];
+  orchestrationTrace: string[];
   createdAt: string;
 }

@@ -11,7 +11,7 @@ interface VirtualizedLogViewerProps {
   filePath: string;
 }
 
-const EMPTY_ARRAY: any[] = [];
+const EMPTY_ARRAY: never[] = [];
 
 export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogViewerProps>(
   ({ filePath }, ref): JSX.Element => {
@@ -22,9 +22,15 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
     // Forward the container DOM element so AppLayout or LogViewer parent can coordinate scroll sync direct
     useImperativeHandle(ref, () => containerRef.current!);
 
-    const viewportEntries = useViewerStore((state) => state.viewportEntriesByPath[filePath] ?? EMPTY_ARRAY);
-    const viewportTotalRows = useViewerStore((state) => state.viewportTotalRowsByPath[filePath] ?? 0);
-    const viewportMatchedIndices = useViewerStore((state) => state.viewportMatchedIndicesByPath[filePath] ?? EMPTY_ARRAY);
+    const viewportEntries = useViewerStore(
+      (state) => state.viewportEntriesByPath[filePath] ?? EMPTY_ARRAY,
+    );
+    const viewportTotalRows = useViewerStore(
+      (state) => state.viewportTotalRowsByPath[filePath] ?? 0,
+    );
+    const viewportMatchedIndices = useViewerStore(
+      (state) => state.viewportMatchedIndicesByPath[filePath] ?? EMPTY_ARRAY,
+    );
     const fetchViewportEntries = useViewerStore((state) => state.fetchViewportEntries);
     const setActiveWindow = useViewerStore((state) => state.setActiveWindow);
     const isDocLoaded = useViewerStore((state) => Boolean(state.documentsByPath[filePath]));
@@ -85,7 +91,9 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
       };
     }, []);
 
-    const targetLineRowIndex = useViewerStore((state) => state.targetLineRowIndexByPath[filePath] ?? null);
+    const targetLineRowIndex = useViewerStore(
+      (state) => state.targetLineRowIndexByPath[filePath] ?? null,
+    );
     const scrollToLineRowIndex = useViewerStore((state) => state.scrollToLineRowIndex);
 
     // Focus and scroll to target line row index

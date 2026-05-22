@@ -51,7 +51,10 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
       }
 
       const result = unwrapIpcResponse(
-        await window.desktop.files.startWatching({ filePath: normalizedFilePath, startOffset: nextOffset }),
+        await window.desktop.files.startWatching({
+          filePath: normalizedFilePath,
+          startOffset: nextOffset,
+        }),
       );
 
       set((state) => ({
@@ -80,7 +83,9 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
   stopWatching: async (filePath): Promise<void> => {
     const normalizedFilePath = normalizePath(filePath);
     try {
-      const result = unwrapIpcResponse(await window.desktop.files.stopWatching({ filePath: normalizedFilePath }));
+      const result = unwrapIpcResponse(
+        await window.desktop.files.stopWatching({ filePath: normalizedFilePath }),
+      );
       const normalizedResultPath = normalizePath(result.filePath);
 
       set((state) => {

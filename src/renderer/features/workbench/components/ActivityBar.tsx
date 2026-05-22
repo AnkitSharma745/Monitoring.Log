@@ -35,7 +35,6 @@ const activityItems: ActivityItem[] = [
   { id: 'incidents', label: 'Incidents', icon: ShieldAlert },
 ];
 
-
 const settingsItem: ActivityItem = {
   id: 'settings',
   label: 'Settings',

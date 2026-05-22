@@ -1,4 +1,3 @@
-import { useEffect, useState, useRef, type JSX, type ChangeEvent } from 'react';
 import {
   BookOpen,
   Search,
@@ -11,9 +10,10 @@ import {
   CheckSquare,
   Square,
 } from 'lucide-react';
+import { useEffect, useState, useRef, type JSX, type ChangeEvent } from 'react';
+import { Button } from '@renderer/components/ui/Button';
 import { useKnowledgeStore } from '@renderer/stores/knowledgeStore';
 import { useViewerStore } from '@renderer/stores/viewerStore';
-import { Button } from '@renderer/components/ui/Button';
 
 type ActiveTab = 'troubleshooter' | 'rules' | 'library' | 'search';
 
@@ -58,7 +58,7 @@ export const KnowledgePanel = (): JSX.Element => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       const text = e.target?.result as string;
-      await ingestDocument(file.name, text, (file as any).path || file.name);
+      await ingestDocument(file.name, text, (file as unknown as { path?: string }).path || file.name);
       setIsImportOpen(false);
       // Trigger a refresh of matches and queries
       if (selectedFilePath) {
@@ -169,7 +169,7 @@ export const KnowledgePanel = (): JSX.Element => {
             </div>
             {queryResults.length === 0 ? (
               <div className="text-xs text-subtle italic text-center py-8">
-                No matching reference manual sections found for "{quickSearchInput}".
+                No matching reference manual sections found for &quot;{quickSearchInput}&quot;.
               </div>
             ) : (
               <div className="space-y-2">
@@ -210,7 +210,9 @@ export const KnowledgePanel = (): JSX.Element => {
               <div className="text-xs text-subtle italic p-5 text-center bg-ink-900/30 rounded border border-line space-y-2">
                 <HelpCircle size={20} className="mx-auto text-subtle" />
                 <p>No documentation symptom matches detected in logs.</p>
-                <p className="text-[10px]">Import a manual in the "Library" tab to add custom symptom signatures.</p>
+                <p className="text-[10px]">
+                  Import a manual in the &quot;Library&quot; tab to add custom symptom signatures.
+                </p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -266,39 +268,54 @@ export const KnowledgePanel = (): JSX.Element => {
                     {/* Explainer */}
                     <div className="text-[9px] bg-ink-950 p-2 rounded border border-line text-subtle space-y-1">
                       <span className="font-bold text-readable">Symptom signature criteria:</span>
-                      <p>Requires all keywords: [{activeSymptomMatch.symptom.symptomPatterns.map(p => `"${p}"`).join(', ')}]</p>
+                      <p>
+                        Requires all keywords: [
+                        {activeSymptomMatch.symptom.symptomPatterns.map((p) => `"${p}"`).join(', ')}
+                        ]
+                      </p>
                     </div>
 
                     {/* Checklist */}
-                    {activeSymptomMatch.symptom.checklist && activeSymptomMatch.symptom.checklist.length > 0 && (
-                      <div className="space-y-1.5">
-                        <div className="text-[9px] font-bold text-readable flex items-center gap-1.5">
-                          <CheckSquare size={12} className="text-accent" />
-                          Investigation Verification Checklist
+                    {activeSymptomMatch.symptom.checklist &&
+                      activeSymptomMatch.symptom.checklist.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-[9px] font-bold text-readable flex items-center gap-1.5">
+                            <CheckSquare size={12} className="text-accent" />
+                            Investigation Verification Checklist
+                          </div>
+                          <div className="space-y-1">
+                            {activeSymptomMatch.symptom.checklist.map((item, idx) => {
+                              const isChecked =
+                                !!checkedChecklistItems[`${activeSymptomMatch.symptom.id}-${idx}`];
+                              return (
+                                <div
+                                  key={idx}
+                                  onClick={() =>
+                                    toggleChecklistItem(activeSymptomMatch.symptom.id, idx)
+                                  }
+                                  className="flex items-start gap-2 p-1.5 bg-ink-950/40 rounded hover:bg-ink-950 transition cursor-pointer select-none text-[10px]"
+                                >
+                                  {isChecked ? (
+                                    <CheckSquare
+                                      size={12}
+                                      className="text-accent shrink-0 mt-0.5"
+                                    />
+                                  ) : (
+                                    <Square size={12} className="text-subtle shrink-0 mt-0.5" />
+                                  )}
+                                  <span
+                                    className={
+                                      isChecked ? 'text-subtle/40 line-through' : 'text-readable'
+                                    }
+                                  >
+                                    {item}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          {activeSymptomMatch.symptom.checklist.map((item, idx) => {
-                            const isChecked = !!checkedChecklistItems[`${activeSymptomMatch.symptom.id}-${idx}`];
-                            return (
-                              <div
-                                key={idx}
-                                onClick={() => toggleChecklistItem(activeSymptomMatch.symptom.id, idx)}
-                                className="flex items-start gap-2 p-1.5 bg-ink-950/40 rounded hover:bg-ink-950 transition cursor-pointer select-none text-[10px]"
-                              >
-                                {isChecked ? (
-                                  <CheckSquare size={12} className="text-accent shrink-0 mt-0.5" />
-                                ) : (
-                                  <Square size={12} className="text-subtle shrink-0 mt-0.5" />
-                                )}
-                                <span className={isChecked ? 'text-subtle/40 line-through' : 'text-readable'}>
-                                  {item}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Resolution */}
                     <div>
@@ -348,84 +365,113 @@ export const KnowledgePanel = (): JSX.Element => {
               <div className="text-xs text-subtle italic p-4 text-center bg-ink-900/30 rounded border border-line">
                 Select a log file to audit rule compliance.
               </div>
-            ) : troubleshooterMatches.length === 0 && ingestedDocuments.flatMap(d => d.rules).length === 0 ? (
+            ) : troubleshooterMatches.length === 0 &&
+              ingestedDocuments.flatMap((d) => d.rules).length === 0 ? (
               <div className="space-y-3">
                 <div className="text-[10px] text-accent font-bold uppercase tracking-wider">
                   Baseline Rules ({4})
                 </div>
                 <div className="text-xs text-subtle italic p-4 bg-ink-900/20 rounded border border-line">
-                  Baseline rule validation is updated inside the primary 'Investigations' panel under the 'Rules' tab. Custom rules declared in manuals will be active here once manuals are imported.
+                  Baseline rule validation is updated inside the primary &apos;Investigations&apos; panel
+                  under the &apos;Rules&apos; tab. Custom rules declared in manuals will be active here once
+                  manuals are imported.
                 </div>
               </div>
             ) : (
               <div className="space-y-3">
                 <div className="text-[10px] text-accent font-bold uppercase tracking-wider">
-                  Ingested Knowledge Rules ({ingestedDocuments.flatMap(d => d.rules).length})
+                  Ingested Knowledge Rules ({ingestedDocuments.flatMap((d) => d.rules).length})
                 </div>
-                
+
                 <div className="space-y-2">
-                  {ingestedDocuments.flatMap(d => d.rules).map((rule, idx) => {
-                    // Gather matches of the custom rules
-                    // Standard matching in front-end for quick display status
-                    const allLogs = useViewerStore.getState().viewportEntriesByPath[selectedFilePath] || [];
-                    const matches = allLogs.filter(e => {
-                      const msg = (e.message || e.raw || '').toLowerCase();
-                      return msg.includes(rule.pattern.toLowerCase());
-                    });
-                    const violations = matches.filter(e => e.severity === 'error' || /fail|error|timeout|crash/i.test(e.message || ''));
-                    const status = matches.length === 0 ? 'unknown' : violations.length > 0 ? 'violation' : 'passed';
-
-                    const statusBadge =
-                      status === 'passed' ? (
-                        <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-emerald-500/25 text-emerald-400 border border-emerald-500/30">PASS</span>
-                      ) : status === 'violation' ? (
-                        <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-rose-500/25 text-rose-400 border border-rose-500/30">VIOLATION</span>
-                      ) : (
-                        <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-ink-800 text-subtle border border-line">NEUTRAL</span>
+                  {ingestedDocuments
+                    .flatMap((d) => d.rules)
+                    .map((rule, idx) => {
+                      // Gather matches of the custom rules
+                      // Standard matching in front-end for quick display status
+                      const allLogs =
+                        useViewerStore.getState().viewportEntriesByPath[selectedFilePath] || [];
+                      const matches = allLogs.filter((e) => {
+                        const msg = (e.message || e.raw || '').toLowerCase();
+                        return msg.includes(rule.pattern.toLowerCase());
+                      });
+                      const violations = matches.filter(
+                        (e) =>
+                          e.severity === 'error' ||
+                          /fail|error|timeout|crash/i.test(e.message || ''),
                       );
+                      const status =
+                        matches.length === 0
+                          ? 'unknown'
+                          : violations.length > 0
+                            ? 'violation'
+                            : 'passed';
 
-                    return (
-                      <div
-                        key={idx}
-                        className={`p-2.5 border rounded-lg bg-ink-900/20 space-y-1.5 transition ${
-                          status === 'violation' ? 'border-rose-500/20 bg-rose-950/5' : 'border-line'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-bold text-accent uppercase">{rule.category}</span>
-                          {statusBadge}
-                        </div>
-                        <div className="text-[11px] font-bold text-readable">{rule.name}</div>
-                        <div className="text-[10px] text-subtle leading-relaxed bg-ink-950 p-2 rounded border border-line">
-                          <span className="font-bold text-readable">Expected: </span>
-                          {rule.expectedBehavior}
-                        </div>
+                      const statusBadge =
+                        status === 'passed' ? (
+                          <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-emerald-500/25 text-emerald-400 border border-emerald-500/30">
+                            PASS
+                          </span>
+                        ) : status === 'violation' ? (
+                          <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-rose-500/25 text-rose-400 border border-rose-500/30">
+                            VIOLATION
+                          </span>
+                        ) : (
+                          <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-ink-800 text-subtle border border-line">
+                            NEUTRAL
+                          </span>
+                        );
 
-                        {status !== 'unknown' && (
-                          <div className="text-[9px] text-subtle space-y-1">
-                            <p>Matches: {matches.length} lines. Pattern: "{rule.pattern}"</p>
-                            {status === 'violation' && (
-                              <div className="mt-1 space-y-1">
-                                <span className="font-bold text-rose-400">Offending log lines:</span>
-                                <div className="max-h-24 overflow-y-auto space-y-1">
-                                  {violations.slice(0, 5).map((e, vIdx) => (
-                                    <div
-                                      key={vIdx}
-                                      onClick={() => scrollToLineRowIndex(e.lineNumber - 1)}
-                                      className="p-1 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-500/20 rounded cursor-pointer text-[8px] text-readable flex items-center justify-between"
-                                    >
-                                      <span>Row {e.lineNumber}</span>
-                                      <span className="truncate pl-3 max-w-44">{e.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-2.5 border rounded-lg bg-ink-900/20 space-y-1.5 transition ${
+                            status === 'violation'
+                              ? 'border-rose-500/20 bg-rose-950/5'
+                              : 'border-line'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-bold text-accent uppercase">
+                              {rule.category}
+                            </span>
+                            {statusBadge}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                          <div className="text-[11px] font-bold text-readable">{rule.name}</div>
+                          <div className="text-[10px] text-subtle leading-relaxed bg-ink-950 p-2 rounded border border-line">
+                            <span className="font-bold text-readable">Expected: </span>
+                            {rule.expectedBehavior}
+                          </div>
+
+                          {status !== 'unknown' && (
+                            <div className="text-[9px] text-subtle space-y-1">
+                              <p>
+                                Matches: {matches.length} lines. Pattern: &quot;{rule.pattern}&quot;
+                              </p>
+                              {status === 'violation' && (
+                                <div className="mt-1 space-y-1">
+                                  <span className="font-bold text-rose-400">
+                                    Offending log lines:
+                                  </span>
+                                  <div className="max-h-24 overflow-y-auto space-y-1">
+                                    {violations.slice(0, 5).map((e, vIdx) => (
+                                      <div
+                                        key={vIdx}
+                                        onClick={() => scrollToLineRowIndex(e.lineNumber - 1)}
+                                        className="p-1 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-500/20 rounded cursor-pointer text-[8px] text-readable flex items-center justify-between"
+                                      >
+                                        <span>Row {e.lineNumber}</span>
+                                        <span className="truncate pl-3 max-w-44">{e.message}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             )}
@@ -454,7 +500,7 @@ export const KnowledgePanel = (): JSX.Element => {
             {isImportOpen && (
               <div className="p-3 bg-ink-900 border border-accent/30 rounded-lg space-y-3 shadow-lg">
                 <h4 className="text-xs font-bold text-readable">Import New Document</h4>
-                
+
                 <div className="space-y-2">
                   {/* Select file */}
                   <div>
@@ -476,7 +522,9 @@ export const KnowledgePanel = (): JSX.Element => {
                     />
                   </div>
 
-                  <div className="text-center text-[9px] text-subtle font-bold py-1">OR ENTER MANUALLY</div>
+                  <div className="text-center text-[9px] text-subtle font-bold py-1">
+                    OR ENTER MANUALLY
+                  </div>
 
                   {/* Manual Title */}
                   <input
@@ -523,7 +571,9 @@ export const KnowledgePanel = (): JSX.Element => {
               <div className="text-xs text-subtle italic p-5 text-center bg-ink-900/30 rounded border border-line space-y-2">
                 <BookOpen size={20} className="mx-auto text-subtle" />
                 <p>No operational manuals imported.</p>
-                <p className="text-[9px]">Import guides or rule configurations to unlock the automated diagnostics engine.</p>
+                <p className="text-[9px]">
+                  Import guides or rule configurations to unlock the automated diagnostics engine.
+                </p>
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -562,10 +612,15 @@ export const KnowledgePanel = (): JSX.Element => {
                     {/* Key terms extracted */}
                     {doc.extractedKeywords.length > 0 && (
                       <div className="space-y-1">
-                        <div className="text-[8px] font-bold text-subtle uppercase">Extracted Entities & Keywords</div>
+                        <div className="text-[8px] font-bold text-subtle uppercase">
+                          Extracted Entities & Keywords
+                        </div>
                         <div className="flex flex-wrap gap-1">
                           {doc.extractedKeywords.slice(0, 6).map((kw, kwIdx) => (
-                            <span key={kwIdx} className="text-[8px] px-1 bg-ink-950/80 rounded border border-line text-subtle/80">
+                            <span
+                              key={kwIdx}
+                              className="text-[8px] px-1 bg-ink-950/80 rounded border border-line text-subtle/80"
+                            >
                               {kw}
                             </span>
                           ))}

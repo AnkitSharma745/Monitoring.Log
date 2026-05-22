@@ -67,3 +67,14 @@ export interface VisibleLogWindow {
     total: number;
   };
 }
+
+export interface CorrelationSequence {
+  id: string;
+  field: 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId';
+  value: string;
+  entries: StructuredLogEntry[];
+  startTime: string | null;
+  endTime: string | null;
+  durationMs: number | null;
+  hasErrors: boolean;
+}

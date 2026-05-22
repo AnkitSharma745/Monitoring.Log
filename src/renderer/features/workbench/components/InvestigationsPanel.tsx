@@ -1,11 +1,12 @@
 import { useEffect, useState, type JSX } from 'react';
+import { useWorkbenchStore } from '@renderer/features/workbench/workbenchStore';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
+import { useAiStore } from '@renderer/stores/aiStore';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { useSearchStore } from '@renderer/stores/searchStore';
-import { useSettingsStore } from '@renderer/stores/settingsStore';
+import { useSettingsStore, type ViewerPreferences } from '@renderer/stores/settingsStore';
 import { useViewerStore } from '@renderer/stores/viewerStore';
-
 import type {
   Incident,
   StateTransitionSequence,
@@ -15,6 +16,7 @@ import type {
   SavedFilter,
   EvidenceBookmark,
 } from '@shared/contracts/investigations';
+import type { StructuredLogEntry } from '@shared/contracts/logs';
 
 type ActiveTab = 'workspace' | 'incidents' | 'states' | 'chains' | 'rules';
 
@@ -40,6 +42,8 @@ export const InvestigationsPanel = (): JSX.Element => {
   const restoreSnapshot = useInvestigationStore((state) => state.restoreSnapshot);
   const selectFile = useFileMonitorStore((state) => state.selectFile);
 
+  const isAiLoading = useAiStore((state) => state.loading);
+
   // Panel state
   const [activeTab, setActiveTab] = useState<ActiveTab>('workspace');
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -63,9 +67,13 @@ export const InvestigationsPanel = (): JSX.Element => {
   // Scan and fetch operational intelligence from Web Worker
   useEffect(() => {
     if (!selectedFilePath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIncidents([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStateSequence(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFailureChains([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRuleResults([]);
       return;
     }
@@ -154,8 +162,8 @@ export const InvestigationsPanel = (): JSX.Element => {
     useSettingsStore.setState((state) => ({
       preferences: {
         ...(state.preferences || {}),
-        severityFilters: { ...(filter.severityFilters || {}) } as any,
-      } as any,
+        severityFilters: (filter.severityFilters || {}) as unknown as ViewerPreferences['severityFilters'],
+      } as ViewerPreferences,
     }));
   };
 
@@ -165,12 +173,18 @@ export const InvestigationsPanel = (): JSX.Element => {
     setNewSnapshotTitle('');
   };
 
-  const handleAddBookmark = (entry: any): void => {
+  const handleAddBookmark = (
+    entry: Pick<StructuredLogEntry, 'id' | 'lineNumber'> & {
+      timestamp?: string | null;
+      message?: string;
+      raw?: string;
+    }
+  ): void => {
     const bookmarkData: Omit<EvidenceBookmark, 'id' | 'createdAt'> = {
       entryId: entry.id,
       lineNumber: entry.lineNumber,
-      timestamp: entry.timestamp,
-      message: entry.message || entry.raw,
+      timestamp: entry.timestamp ?? null,
+      message: entry.message || entry.raw || '',
       sourceId: selectedFilePath || '',
     };
     if (bookmarkNote.trim()) {
@@ -567,27 +581,74 @@ export const InvestigationsPanel = (): JSX.Element => {
                           <button
                             onClick={async () => {
                               // Retrieve first line coordinates and scroll viewport
-                              try {
-                                const client = getEngineWorkerClient();
-                                await client.request({
-                                  type: 'getCorrelationSequence',
-                                  requestId: `first-line:${incident.id}`,
-                                  sourceId: selectedFilePath,
-                                  field: 'correlationId',
-                                  value: incident.category, // dummy fields, we just want sequence
-                                });
-                                // Alternatively, we scroll direct to first entry id coordinate
-                                if (incident.entryIds[0]) {
-                                  // Just a standard search loop to snap to line
-                                  // As a backup, we scroll to index directly if we can fetch entry details
+                              if (incident.entryIds[0]) {
+                                const viewportEntries =
+                                  useViewerStore.getState().viewportEntriesByPath[
+                                    selectedFilePath
+                                  ] || [];
+                                const entry = viewportEntries.find(
+                                  (e) => e.id === incident.entryIds[0],
+                                );
+                                if (entry) {
+                                  scrollToLineRowIndex(entry.lineNumber - 1);
                                 }
-                              } catch {}
+                              }
                             }}
                             className="text-[9px] text-readable hover:underline"
                           >
-                            Timeline View
+                            Jump to Start
                           </button>
                         </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1 border-t border-ink-800/10">
+                        <button
+                          onClick={async () => {
+                            const viewportEntries =
+                              useViewerStore.getState().viewportEntriesByPath[selectedFilePath] ||
+                              [];
+                            const incidentEntries = viewportEntries.filter((entry) =>
+                              incident.entryIds.includes(entry.id),
+                            );
+                            const prompt = `Analyze detected incident: ${incident.title}. Category: ${incident.category}. Description: ${incident.description}`;
+
+                            const bottomPanelState = useWorkbenchStore.getState();
+                            if (bottomPanelState.activeBottomPanel !== 'aiEvidence') {
+                              bottomPanelState.setActiveBottomPanel('aiEvidence');
+                            } else if (!bottomPanelState.isBottomPanelVisible) {
+                              bottomPanelState.toggleBottomPanel();
+                            }
+
+                            await useAiStore
+                              .getState()
+                              .runAiReasoning(
+                                activeInvestigationId || 'draft',
+                                prompt,
+                                incidentEntries,
+                              );
+                          }}
+                          disabled={isAiLoading}
+                          className="text-[9px] text-accent font-bold hover:underline flex items-center gap-0.5 disabled:opacity-50"
+                        >
+                          ✨ Analyze Incident
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const bottomPanelState = useWorkbenchStore.getState();
+                            if (bottomPanelState.activeBottomPanel !== 'aiEvidence') {
+                              bottomPanelState.setActiveBottomPanel('aiEvidence');
+                            } else if (!bottomPanelState.isBottomPanelVisible) {
+                              bottomPanelState.toggleBottomPanel();
+                            }
+
+                            await useAiStore
+                              .getState()
+                              .findSimilarIncidents(selectedFilePath, incident.id);
+                          }}
+                          disabled={isAiLoading}
+                          className="text-[9px] text-emerald-400 font-bold hover:underline flex items-center gap-0.5 disabled:opacity-50"
+                        >
+                          🔍 Find Similar
+                        </button>
                       </div>
                     </div>
                   );
@@ -648,7 +709,7 @@ export const InvestigationsPanel = (): JSX.Element => {
                           <span className="text-success font-bold">{t.toState}</span>
                         </div>
                         <div className="text-[9px] text-subtle italic truncate font-sans">
-                          Trigger: "{t.triggerMessage}"
+                          Trigger: &quot;{t.triggerMessage}&quot;
                         </div>
                       </div>
                     </div>
@@ -777,7 +838,7 @@ export const InvestigationsPanel = (): JSX.Element => {
                       </div>
 
                       <div className="text-[9px] text-subtle bg-ink-950 p-1.5 rounded border border-ink-900 italic leading-relaxed">
-                        Behavior: "{rule.expectedBehavior}"
+                        Behavior: &quot;{rule.expectedBehavior}&quot;
                       </div>
 
                       {rule.notes && (
@@ -809,7 +870,9 @@ export const InvestigationsPanel = (): JSX.Element => {
                                     });
                                     // Alternatively, we can let user bookmark or we just jump coordinates if index exists
                                     // For now, scroll to approximate line row index using a simple mapper
-                                  } catch {}
+                                  } catch (e) {
+                                    console.warn('Failed to request visible window for rule validation', e);
+                                  }
                                 }}
                                 className="bg-ink-900 border border-danger/25 text-danger font-bold text-[8px] px-1.5 py-0.5 rounded hover:border-danger transition"
                               >

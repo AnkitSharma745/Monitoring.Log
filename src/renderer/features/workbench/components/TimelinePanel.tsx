@@ -1,8 +1,8 @@
 import { useEffect, useState, type JSX } from 'react';
-import { useViewerStore } from '@renderer/stores/viewerStore';
-import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
-import type { StructuredLogEntry } from '@shared/contracts/logs';
+import { useInvestigationStore } from '@renderer/stores/investigationStore';
+import { useViewerStore } from '@renderer/stores/viewerStore';
+import type { CorrelationSequence } from '@shared/contracts/logs';
 
 interface DetectedPattern {
   type: 'payment_retry' | 'heartbeat_failure' | 'kiosk_reset_chain' | 'api_storm';
@@ -12,18 +12,7 @@ interface DetectedPattern {
   severity: 'error' | 'warn';
 }
 
-interface CorrelationSequence {
-  id: string;
-  field: 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId';
-  value: string;
-  entries: StructuredLogEntry[];
-  startTime: string | null;
-  endTime: string | null;
-  durationMs: number | null;
-  hasErrors: boolean;
-}
-
-const EMPTY_ARRAY: any[] = [];
+const EMPTY_ARRAY: never[] = [];
 
 export const TimelinePanel = (): JSX.Element => {
   const selectedFilePath = useViewerStore((state) => state.selectedFilePath);
@@ -44,6 +33,7 @@ export const TimelinePanel = (): JSX.Element => {
   // Load patterns and scan whenever selected file changes
   useEffect(() => {
     if (!selectedFilePath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPatterns([]);
       setActiveSequence(null);
       return;
@@ -153,7 +143,7 @@ export const TimelinePanel = (): JSX.Element => {
           <div className="space-y-2">
             <select
               value={searchField}
-              onChange={(e) => setSearchField(e.target.value as any)}
+              onChange={(e) => setSearchField(e.target.value as 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId')}
               className="w-full bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-readable focus:outline-none focus:border-accent"
             >
               <option value="correlationId">Correlation ID</option>
@@ -311,7 +301,7 @@ export const TimelinePanel = (): JSX.Element => {
                   const activeBookmark = bookmarks.find(
                     (b) =>
                       b.entryId === entry.id ||
-                      (b.lineNumber === entry.lineNumber && b.sourceId === selectedFilePath)
+                      (b.lineNumber === entry.lineNumber && b.sourceId === selectedFilePath),
                   );
                   const isBookmarked = !!activeBookmark;
 
@@ -384,7 +374,9 @@ export const TimelinePanel = (): JSX.Element => {
                         {/* Visual bookmark custom annotation notes */}
                         {activeBookmark?.note && (
                           <div className="mt-2 p-2 bg-amber-400/10 border border-amber-400/30 rounded text-[9px] text-amber-300 italic font-sans flex items-start gap-1.5">
-                            <span className="text-amber-400 shrink-0 font-bold">★ Analysis Note:</span>
+                            <span className="text-amber-400 shrink-0 font-bold">
+                              ★ Analysis Note:
+                            </span>
                             <span className="leading-normal">{activeBookmark.note}</span>
                           </div>
                         )}
@@ -395,7 +387,9 @@ export const TimelinePanel = (): JSX.Element => {
                             Raw range: byte {entry.byteStart} - {entry.byteEnd}
                           </span>
                           {entry.paymentIds.length > 0 && (
-                            <span className="text-accent font-bold">Tx: {entry.paymentIds.join(', ')}</span>
+                            <span className="text-accent font-bold">
+                              Tx: {entry.paymentIds.join(', ')}
+                            </span>
                           )}
                         </div>
                       </div>
