@@ -5,6 +5,10 @@ import type {
   StateTransitionSequence,
   DomainRuleResult,
   FailureChainCandidate,
+  GraphNode,
+  GraphEdge,
+  IncidentKnowledgeGraph,
+  OperationalDegradationResult,
 } from '@shared/contracts/investigations';
 import type { ExtractedRule } from '@shared/contracts/knowledge';
 import type { StructuredLogEntry } from '@shared/contracts/logs';
@@ -18,7 +22,11 @@ export class OperationalCorrelationEngine {
   /**
    * Scan entries and group repeated operational loops/failures into structured Incidents.
    */
-  public static detectIncidents(sourceId: string, entries: StructuredLogEntry[]): Incident[] {
+  public static detectIncidents(
+    sourceId: string,
+    entries: StructuredLogEntry[],
+    _customRules?: ExtractedRule[]
+  ): Incident[] {
     const incidents: Incident[] = [];
     const timeThresholdMs = 45000; // 45 seconds to group related logs
 
@@ -137,6 +145,7 @@ export class OperationalCorrelationEngine {
   public static reconstructStates(
     sourceId: string,
     entries: StructuredLogEntry[],
+    _customRules?: ExtractedRule[],
   ): StateTransitionSequence {
     const transitions: StateTransition[] = [];
     let currentState = 'UNKNOWN';
@@ -756,5 +765,203 @@ export class OperationalCorrelationEngine {
       durationMs,
       confidence,
     };
+  }
+
+  /**
+   * Compiles incidents, states, and rules into an explainable relationship graph structure.
+   */
+  public static compileIncidentGraph(
+    incidents: Incident[],
+    sequence: StateTransitionSequence | null,
+    ruleResults: DomainRuleResult[]
+  ): IncidentKnowledgeGraph {
+    const nodes: GraphNode[] = [];
+    const edges: GraphEdge[] = [];
+    const nodeIds = new Set<string>();
+
+    const addNode = (node: GraphNode) => {
+      if (!nodeIds.has(node.id)) {
+        nodes.push(node);
+        nodeIds.add(node.id);
+      }
+    };
+
+    // 1. Ingest Incidents as nodes
+    for (const inc of incidents) {
+      addNode({
+        id: inc.id,
+        type: 'incident',
+        label: inc.title,
+        description: inc.description,
+        metadata: {
+          category: inc.category,
+          severity: inc.severity,
+          confidence: inc.confidence,
+        },
+      });
+
+      // Scan log text of the incident to auto-discover related hardware peripherals
+      const text = inc.description.toLowerCase();
+      if (/printer|paper/i.test(text)) {
+        addNode({
+          id: 'hw-printer',
+          type: 'hardware',
+          label: 'Receipt Printer COM',
+          description: 'Thermal receipt printer subsystem',
+        });
+        edges.push({
+          sourceId: inc.id,
+          targetId: 'hw-printer',
+          relationship: 'affects',
+          confidence: 0.9,
+        });
+      }
+      if (/payment|cashless|card|gateway/i.test(text)) {
+        addNode({
+          id: 'hw-pinpad',
+          type: 'hardware',
+          label: 'Card Reader Pinpad',
+          description: 'Cashless payment authorization terminal',
+        });
+        edges.push({
+          sourceId: inc.id,
+          targetId: 'hw-pinpad',
+          relationship: 'affects',
+          confidence: 0.95,
+        });
+      }
+    }
+
+    // 2. Ingest State transitions as nodes and link to incidents occurring in overlap
+    if (sequence && sequence.transitions) {
+      for (const t of sequence.transitions) {
+        const nodeId = `state-trans-${t.lineNumber}-${t.fromState}-${t.toState}`;
+        addNode({
+          id: nodeId,
+          type: 'state',
+          label: `${t.fromState} ➔ ${t.toState}`,
+          description: `Line ${t.lineNumber}: ${t.triggerMessage}`,
+          metadata: {
+            lineNumber: t.lineNumber,
+            timestamp: t.timestamp,
+          },
+        });
+
+        // Link transition node to related incidents
+        for (const inc of incidents) {
+          const incStart = inc.timestampStart ? Date.parse(inc.timestampStart) : 0;
+          const incEnd = inc.timestampEnd ? Date.parse(inc.timestampEnd) : incStart;
+          const transTime = t.timestamp ? Date.parse(t.timestamp) : 0;
+
+          if (transTime && incStart && transTime >= incStart - 30000 && transTime <= incEnd + 30000) {
+            edges.push({
+              sourceId: inc.id,
+              targetId: nodeId,
+              relationship: 'correlated_with',
+              confidence: 0.8,
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Ingest SLA rule violations and link to related incidents/logs
+    for (const rule of ruleResults) {
+      if (rule.status === 'violation') {
+        const nodeId = `rule-violation-${rule.ruleId}`;
+        addNode({
+          id: nodeId,
+          type: 'rule',
+          label: `SLA Breach: ${rule.name}`,
+          description: rule.expectedBehavior,
+          metadata: {
+            category: rule.category,
+            notes: rule.notes,
+          },
+        });
+
+        // Link rule to matching incidents
+        for (const inc of incidents) {
+          if (
+            (rule.category === 'payment' && inc.category === 'payment_timeout') ||
+            (rule.category === 'hardware' && inc.category === 'printer_reconnect') ||
+            (rule.category === 'system' && inc.category === 'reset_cycle') ||
+            (rule.category === 'network' && inc.category === 'heartbeat_dropout')
+          ) {
+            edges.push({
+              sourceId: inc.id,
+              targetId: nodeId,
+              relationship: 'violates',
+              confidence: 0.95,
+            });
+          }
+        }
+      }
+    }
+
+    return { nodes, edges };
+  }
+
+  /**
+   * Calculates a deterministic operational degradation score based on telemetry alerts and incidents.
+   */
+  public static calculateDegradationScore(
+    incidents: Incident[],
+    ruleResults: DomainRuleResult[]
+  ): OperationalDegradationResult {
+    let score = 100;
+    const factors: string[] = [];
+
+    const paymentIncidents = incidents.filter((i) => i.category === 'payment_timeout');
+    if (paymentIncidents.length > 0) {
+      score -= paymentIncidents.length * 15;
+      factors.push(`${paymentIncidents.length} Cashless payment transaction timeouts detected.`);
+    }
+
+    const resetIncidents = incidents.filter((i) => i.category === 'reset_cycle');
+    if (resetIncidents.length > 0) {
+      score -= resetIncidents.length * 15;
+      factors.push(`${resetIncidents.length} Watchdog hardware reset / reboot cycles recorded.`);
+    }
+
+    const heartbeatIncidents = incidents.filter((i) => i.category === 'heartbeat_dropout');
+    if (heartbeatIncidents.length > 0) {
+      score -= heartbeatIncidents.length * 12;
+      factors.push(`${heartbeatIncidents.length} Heartbeat network connectivity dropouts recorded.`);
+    }
+
+    const terminalIncidents = incidents.filter((i) => i.category === 'terminal_id_failure');
+    if (terminalIncidents.length > 0) {
+      score -= terminalIncidents.length * 20;
+      factors.push(`Kiosk experienced ${terminalIncidents.length} critical identification / authentication failures.`);
+    }
+
+    const printerIncidents = incidents.filter((i) => i.category === 'printer_reconnect');
+    if (printerIncidents.length > 0) {
+      score -= printerIncidents.length * 8;
+      factors.push(`${printerIncidents.length} Receipt printer COM / USB dropout cycles observed.`);
+    }
+
+    const violations = ruleResults.filter((r) => r.status === 'violation');
+    if (violations.length > 0) {
+      score -= violations.length * 10;
+      factors.push(`${violations.length} official operational SLA compliance breaches.`);
+    }
+
+    // Clamp score between 0 and 100
+    score = Math.max(0, Math.min(100, score));
+
+    let level: 'nominal' | 'degraded' | 'critical' = 'nominal';
+    if (score < 70) {
+      level = 'critical';
+    } else if (score < 90) {
+      level = 'degraded';
+    }
+
+    if (factors.length === 0) {
+      factors.push('All systems nominal. Log workspace operates within target SLA bounds.');
+    }
+
+    return { score, level, factors };
   }
 }

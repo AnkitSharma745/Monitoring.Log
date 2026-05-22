@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useState, useRef, type JSX } from 'react';
 import { useWorkbenchStore } from '@renderer/features/workbench/workbenchStore';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
 import { useAiStore } from '@renderer/stores/aiStore';
@@ -15,10 +15,21 @@ import type {
   InvestigationMode,
   SavedFilter,
   EvidenceBookmark,
+  IncidentKnowledgeGraph,
+  OperationalDegradationResult,
 } from '@shared/contracts/investigations';
 import type { StructuredLogEntry } from '@shared/contracts/logs';
 
-type ActiveTab = 'workspace' | 'incidents' | 'states' | 'chains' | 'rules';
+type ActiveTab =
+  | 'workspace'
+  | 'incidents'
+  | 'states'
+  | 'chains'
+  | 'rules'
+  | 'cases'
+  | 'graph'
+  | 'replay'
+  | 'customRules';
 
 export const InvestigationsPanel = (): JSX.Element => {
   const selectedFilePath = useViewerStore((state) => state.selectedFilePath);
@@ -30,6 +41,17 @@ export const InvestigationsPanel = (): JSX.Element => {
   );
   const activeInvestigationId = useInvestigationStore((state) => state.activeInvestigationId);
   const investigationsById = useInvestigationStore((state) => state.investigationsById);
+  const investigationsList = useInvestigationStore((state) => state.investigationsList);
+
+  const createNewInvestigationCase = useInvestigationStore(
+    (state) => state.createNewInvestigationCase,
+  );
+  const deleteInvestigationCase = useInvestigationStore((state) => state.deleteInvestigationCase);
+  const exportInvestigationCase = useInvestigationStore((state) => state.exportInvestigationCase);
+  const importInvestigationCase = useInvestigationStore((state) => state.importInvestigationCase);
+  const addCustomRule = useInvestigationStore((state) => state.addCustomRule);
+  const deleteCustomRule = useInvestigationStore((state) => state.deleteCustomRule);
+  const applyLayoutPreset = useInvestigationStore((state) => state.applyLayoutPreset);
 
   const setInvestigationMode = useInvestigationStore((state) => state.setInvestigationMode);
   const updateNotes = useInvestigationStore((state) => state.updateNotes);
@@ -44,18 +66,43 @@ export const InvestigationsPanel = (): JSX.Element => {
 
   const isAiLoading = useAiStore((state) => state.loading);
 
-  // Panel state
+  // Panel active tabs
   const [activeTab, setActiveTab] = useState<ActiveTab>('workspace');
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [stateSequence, setStateSequence] = useState<StateTransitionSequence | null>(null);
   const [failureChains, setFailureChains] = useState<FailureChainCandidate[]>([]);
   const [ruleResults, setRuleResults] = useState<DomainRuleResult[]>([]);
 
-  // Input fields
+  // Phase 8 Off-Thread Calculated States
+  const [degradation, setDegradation] = useState<OperationalDegradationResult | null>(null);
+  const [incidentGraph, setIncidentGraph] = useState<IncidentKnowledgeGraph | null>(null);
+
+  // Input states
   const [newFilterName, setNewFilterName] = useState('');
   const [newSnapshotTitle, setNewSnapshotTitle] = useState('');
   const [bookmarkNote, setBookmarkNote] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Cases Tab local inputs
+  const [newCaseTitleInput, setNewCaseTitleInput] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Custom SLA Rule Tab local inputs
+  const [ruleName, setRuleName] = useState('');
+  const [rulePattern, setRulePattern] = useState('');
+  const [ruleExpected, setRuleExpected] = useState('');
+  const [ruleCategory, setRuleCategory] = useState<'payment' | 'hardware' | 'network' | 'system'>(
+    'payment',
+  );
+  const [ruleSeverity, setRuleSeverity] = useState<'error' | 'warn'>('error');
+
+  // Replay Player State
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2 | 5 | 10>(1);
+  const [currentTransitionIdx, setCurrentTransitionIdx] = useState(-1);
+
+  // Graph Explorer local state
+  const [expandedGraphNodeId, setExpandedGraphNodeId] = useState<string | null>(null);
 
   // Initialize active investigation draft if none is set
   useEffect(() => {
@@ -75,6 +122,10 @@ export const InvestigationsPanel = (): JSX.Element => {
       setFailureChains([]);
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setRuleResults([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDegradation(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIncidentGraph(null);
       return;
     }
 
@@ -84,11 +135,15 @@ export const InvestigationsPanel = (): JSX.Element => {
         const workerClient = getEngineWorkerClient();
         const now = Date.now();
 
+        // Pass customRules associated with the active investigation
+        const activeCustomRules = activeInv?.customRules || [];
+
         // 1. Detect Incidents
         const incidentRes = await workerClient.request({
           type: 'detectIncidents',
           requestId: `incidents:${selectedFilePath}:${now}`,
           sourceId: selectedFilePath,
+          customRules: activeCustomRules,
         });
         let freshIncidents: Incident[] = [];
         if (incidentRes.type === 'detectIncidents:done') {
@@ -101,9 +156,12 @@ export const InvestigationsPanel = (): JSX.Element => {
           type: 'reconstructStates',
           requestId: `states:${selectedFilePath}:${now}`,
           sourceId: selectedFilePath,
+          customRules: activeCustomRules,
         });
+        let freshSequence: StateTransitionSequence | null = null;
         if (stateRes.type === 'reconstructStates:done') {
           setStateSequence(stateRes.sequence);
+          freshSequence = stateRes.sequence;
         }
 
         // 3. Detect Failure Chains
@@ -126,9 +184,37 @@ export const InvestigationsPanel = (): JSX.Element => {
           type: 'validateDomainRules',
           requestId: `rules:${selectedFilePath}:${now}`,
           sourceId: selectedFilePath,
+          customRules: activeCustomRules,
         });
+        let freshRules: DomainRuleResult[] = [];
         if (ruleRes.type === 'validateDomainRules:done') {
           setRuleResults(ruleRes.results);
+          freshRules = ruleRes.results;
+        }
+
+        // 5. Calculate Operational Degradation Score
+        const degradationRes = await workerClient.request({
+          type: 'calculateDegradationScore',
+          requestId: `degradation:${selectedFilePath}:${now}`,
+          sourceId: selectedFilePath,
+          incidents: freshIncidents,
+          ruleResults: freshRules,
+        });
+        if (degradationRes.type === 'calculateDegradationScore:done') {
+          setDegradation(degradationRes.result);
+        }
+
+        // 6. Compile Incident Relationship Graph
+        const graphRes = await workerClient.request({
+          type: 'compileIncidentGraph',
+          requestId: `graph:${selectedFilePath}:${now}`,
+          sourceId: selectedFilePath,
+          incidents: freshIncidents,
+          sequence: freshSequence,
+          ruleResults: freshRules,
+        });
+        if (graphRes.type === 'compileIncidentGraph:done') {
+          setIncidentGraph(graphRes.graph);
         }
       } catch (err) {
         console.error('Failed to run operational correlation analysis:', err);
@@ -142,7 +228,41 @@ export const InvestigationsPanel = (): JSX.Element => {
     // Poll for updates every 8 seconds if live Monitoring or tail mode is running
     const interval = setInterval(runOffThreadAnalysis, 8000);
     return () => clearInterval(interval);
-  }, [selectedFilePath]);
+  }, [selectedFilePath, activeInv?.customRules]);
+
+  // Replay Player engine
+  useEffect(() => {
+    if (!isPlaying || !stateSequence || stateSequence.transitions.length === 0) {
+      return;
+    }
+
+    const intervalTime = 1800 / playbackSpeed;
+
+    const timer = setInterval(() => {
+      setCurrentTransitionIdx((prev) => {
+        const next = prev + 1;
+        if (next >= stateSequence.transitions.length) {
+          setIsPlaying(false);
+          return prev; // Stop at end of replay sequence
+        }
+
+        const t = stateSequence.transitions[next]!;
+        scrollToLineRowIndex(t.lineNumber - 1);
+
+        // Highlight line in view
+        const viewportEntries =
+          useViewerStore.getState().viewportEntriesByPath[selectedFilePath || ''] || [];
+        const entry = viewportEntries.find((e) => e.lineNumber === t.lineNumber);
+        if (entry) {
+          useViewerStore.getState().setSelectedLineEntry(entry);
+        }
+
+        return next;
+      });
+    }, intervalTime);
+
+    return () => clearInterval(timer);
+  }, [isPlaying, stateSequence, playbackSpeed, scrollToLineRowIndex, selectedFilePath]);
 
   const handleSaveFilter = (): void => {
     if (!newFilterName.trim()) return;
@@ -162,7 +282,8 @@ export const InvestigationsPanel = (): JSX.Element => {
     useSettingsStore.setState((state) => ({
       preferences: {
         ...(state.preferences || {}),
-        severityFilters: (filter.severityFilters || {}) as unknown as ViewerPreferences['severityFilters'],
+        severityFilters:
+          filter.severityFilters as unknown as ViewerPreferences['severityFilters'],
       } as ViewerPreferences,
     }));
   };
@@ -178,7 +299,7 @@ export const InvestigationsPanel = (): JSX.Element => {
       timestamp?: string | null;
       message?: string;
       raw?: string;
-    }
+    },
   ): void => {
     const bookmarkData: Omit<EvidenceBookmark, 'id' | 'createdAt'> = {
       entryId: entry.id,
@@ -203,8 +324,84 @@ export const InvestigationsPanel = (): JSX.Element => {
 
   const handleFocusIncident = (incident: Incident): void => {
     if (incident.entryIds.length === 0) return;
-    // Highlight or filter logs in the viewer by setting the search to the incident type or ID
     useSearchStore.getState().setSearchQuery(incident.category);
+  };
+
+  // Case management handlers
+  const handleCreateCase = (): void => {
+    if (!newCaseTitleInput.trim()) return;
+    createNewInvestigationCase(newCaseTitleInput.trim());
+    setNewCaseTitleInput('');
+  };
+
+  const handleExportCase = (id: string, title: string): void => {
+    try {
+      const dataStr = exportInvestigationCase(id);
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+
+      const exportFileDefaultName = `${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_case_bundle.json`;
+
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleImportCaseClick = (): void => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportCaseFile = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result;
+      if (typeof content === 'string') {
+        try {
+          importInvestigationCase(content);
+        } catch (err) {
+          alert('Failed to parse case bundle JSON.');
+        }
+      }
+    };
+    reader.readAsText(file);
+    // Reset file input
+    event.target.value = '';
+  };
+
+  // Custom rule creation handler
+  const handleCreateCustomRule = (): void => {
+    if (!ruleName.trim() || !rulePattern.trim()) return;
+    addCustomRule({
+      name: ruleName.trim(),
+      pattern: rulePattern.trim(),
+      expectedBehavior: ruleExpected.trim() || 'Custom validation pattern must not fail',
+      category: ruleCategory,
+      severity: ruleSeverity,
+    });
+    setRuleName('');
+    setRulePattern('');
+    setRuleExpected('');
+  };
+
+  // Playback scrub control
+  const handleScrub = (idx: number): void => {
+    if (!stateSequence || !stateSequence.transitions[idx]) return;
+    setCurrentTransitionIdx(idx);
+    const t = stateSequence.transitions[idx]!;
+    scrollToLineRowIndex(t.lineNumber - 1);
+
+    const viewportEntries =
+      useViewerStore.getState().viewportEntriesByPath[selectedFilePath || ''] || [];
+    const entry = viewportEntries.find((e) => e.lineNumber === t.lineNumber);
+    if (entry) {
+      useViewerStore.getState().setSelectedLineEntry(entry);
+    }
   };
 
   if (!selectedFilePath) {
@@ -226,46 +423,104 @@ export const InvestigationsPanel = (): JSX.Element => {
   const complianceRate =
     totalCheckedRules > 0 ? Math.round((passedRules / totalCheckedRules) * 100) : 0;
 
+  // Premium Health Ring Color Computation
+  const healthScore = degradation ? degradation.score : 100;
+  const healthLevel = degradation ? degradation.level : 'nominal';
+  const ringColor =
+    healthLevel === 'critical'
+      ? '#f43f5e'
+      : healthLevel === 'degraded'
+        ? '#f59e0b'
+        : '#10b981';
+  const ringBg =
+    healthLevel === 'critical'
+      ? 'bg-rose-950/40 text-rose-500 border-rose-900/60'
+      : healthLevel === 'degraded'
+        ? 'bg-amber-950/40 text-amber-500 border-amber-900/60'
+        : 'bg-emerald-950/40 text-emerald-500 border-emerald-900/60';
+
+  // SVG Circular Dash offset calculations (Circumference of r=18 is 113.1)
+  const radius = 18;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (healthScore / 100) * circumference;
+
   return (
     <div className="flex h-full w-full flex-col bg-ink-950 text-readable font-mono select-none overflow-hidden border-l border-ink-800">
-      {/* Visual Telemetry Header */}
-      <div className="p-3 bg-ink-900 border-b border-ink-800 space-y-2 shrink-0">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-subtle tracking-wider uppercase">
-            Investigation Engine
-          </span>
-          {loading && (
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+      {/* Visual Telemetry Enterprise Header */}
+      <div className="p-3.5 bg-ink-900 border-b border-ink-800 flex items-center justify-between gap-3 shrink-0">
+        <div className="space-y-1.5 flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-extrabold text-accent tracking-widest uppercase">
+              Investigation Platform v8
             </span>
-          )}
+            {loading && (
+              <span className="flex h-1.5 w-1.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent" />
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-readable font-bold truncate max-w-[150px]" title={activeInv?.title}>
+              {activeInv?.title || 'Draft Case'}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-accent font-bold truncate max-w-[180px]">
-            {activeInv?.title || 'Draft Workspace'}
-          </span>
-          <span className="text-[10px] bg-ink-850 px-1.5 py-0.5 rounded text-subtle border border-ink-800">
-            {activeInv?.mode.replace(/([A-Z])/g, ' $1').toUpperCase() || 'INVESTIGATION'}
-          </span>
+
+        {/* Degradation Score Premium Ring */}
+        <div
+          className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border shrink-0 ${ringBg}`}
+          title={degradation?.factors.join('\n') || 'Determining health score...'}
+        >
+          <div className="relative w-10 h-10 flex items-center justify-center">
+            <svg className="w-10 h-10 -rotate-90">
+              <circle
+                cx="20"
+                cy="20"
+                r={radius}
+                className="stroke-ink-850 fill-transparent"
+                strokeWidth="3.5"
+              />
+              <circle
+                cx="20"
+                cy="20"
+                r={radius}
+                className="fill-transparent transition-all duration-500 ease-out"
+                stroke={ringColor}
+                strokeWidth="3.5"
+                strokeDasharray={circumference}
+                strokeDashoffset={strokeDashoffset}
+                strokeLinecap="round"
+              />
+            </svg>
+            <span className="absolute text-[10px] font-extrabold">{healthScore}%</span>
+          </div>
+          <div className="flex flex-col text-left">
+            <span className="text-[8px] font-bold text-subtle tracking-wider uppercase">Health</span>
+            <span className="text-[10px] font-extrabold capitalize">{healthLevel}</span>
+          </div>
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex border-b border-ink-800 bg-ink-900/60 shrink-0 overflow-x-auto scrollbar-none">
+      {/* Responsive Navigation Tabs Grid */}
+      <div className="grid grid-cols-3 border-b border-ink-800 bg-ink-900/60 shrink-0 text-[10px] font-bold">
         {(
           [
-            { id: 'workspace', label: 'RCA', icon: '📝' },
+            { id: 'workspace', label: 'RCA Core', icon: '🔬' },
             { id: 'incidents', label: `Incidents (${incidents.length})`, icon: '⚠️' },
             { id: 'states', label: 'States', icon: '🔄' },
             { id: 'chains', label: `Chains (${failureChains.length})`, icon: '🔗' },
             { id: 'rules', label: `SLA (${complianceRate}%)`, icon: '🛡️' },
+            { id: 'cases', label: 'Cases', icon: '💼' },
+            { id: 'graph', label: 'Graph Map', icon: '🕸️' },
+            { id: 'replay', label: 'Replay', icon: '🔄' },
+            { id: 'customRules', label: 'Rules Builder', icon: '🛡️' },
           ] as const
         ).map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1 px-3 py-2 text-[10px] font-bold tracking-tight border-b-2 transition shrink-0 ${
+            className={`flex items-center justify-center gap-1 py-2 transition border-b-2 font-bold ${
               activeTab === tab.id
                 ? 'border-accent bg-ink-950 text-readable'
                 : 'border-transparent text-subtle hover:text-readable hover:bg-ink-900/40'
@@ -281,7 +536,49 @@ export const InvestigationsPanel = (): JSX.Element => {
       <div className="flex-1 overflow-y-auto min-h-0 bg-ink-950">
         {/* TAB 1: WORKSPACE & RCA NOTES */}
         {activeTab === 'workspace' && activeInv && (
-          <div className="p-3 space-y-4">
+          <div className="p-3.5 space-y-4">
+            {/* Workbench Layout Presets Selector */}
+            <div className="space-y-1 p-2 bg-ink-900/80 border border-ink-800 rounded-lg">
+              <label className="text-[9px] font-extrabold text-accent uppercase tracking-wider">
+                Workbench View Presets
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 pt-1.5">
+                {(
+                  [
+                    { id: 'explorer', label: '📁 Explorer', desc: 'Standard files view' },
+                    { id: 'rca', label: '🔬 RCA Focus', desc: 'Notes & Diagnostics' },
+                    { id: 'split', label: '📊 Dual Split', desc: 'Timeline Sync Diff' },
+                    { id: 'replay', label: '🔄 Replay', desc: 'Chronological path' },
+                  ] as const
+                ).map((preset) => (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyLayoutPreset(preset.id)}
+                    className="bg-ink-850 hover:bg-accent hover:text-ink-950 text-readable text-[10px] py-1 px-1.5 rounded font-bold transition border border-ink-750 flex flex-col items-center justify-center text-center space-y-0.5"
+                    title={preset.desc}
+                  >
+                    <span>{preset.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Diagnostic Degradation Summary */}
+            {degradation && degradation.factors.length > 0 && (
+              <div className="p-2.5 bg-ink-900/60 border border-ink-800 rounded-lg space-y-1">
+                <span className="text-[9px] font-bold text-rose-400 uppercase tracking-wider">
+                  Operational Health Factors:
+                </span>
+                <ul className="list-disc pl-3 text-[10px] text-subtle space-y-1 leading-relaxed">
+                  {degradation.factors.map((f, idx) => (
+                    <li key={idx} className="hover:text-readable transition">
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* Mode Switcher */}
             <div className="space-y-1">
               <label className="text-[9px] font-bold text-subtle uppercase">
@@ -467,9 +764,9 @@ export const InvestigationsPanel = (): JSX.Element => {
                       <div className="flex justify-end pt-0.5">
                         <button
                           onClick={(e) => {
-                            e.stopPropagation();
-                            removeBookmark(b.id);
-                          }}
+                              e.stopPropagation();
+                              removeBookmark(b.id);
+                            }}
                           className="text-danger hover:text-danger-light text-[9px] transition"
                         >
                           Remove Bookmark
@@ -514,7 +811,7 @@ export const InvestigationsPanel = (): JSX.Element => {
 
         {/* TAB 2: AUTOMATED INCIDENT GROUPS */}
         {activeTab === 'incidents' && (
-          <div className="p-3 space-y-3">
+          <div className="p-3.5 space-y-3">
             <div className="text-[10px] font-bold text-subtle tracking-wider uppercase">
               Detected Incidents ({incidents.length})
             </div>
@@ -580,11 +877,10 @@ export const InvestigationsPanel = (): JSX.Element => {
                           </button>
                           <button
                             onClick={async () => {
-                              // Retrieve first line coordinates and scroll viewport
                               if (incident.entryIds[0]) {
                                 const viewportEntries =
                                   useViewerStore.getState().viewportEntriesByPath[
-                                    selectedFilePath
+                                    selectedFilePath || ''
                                   ] || [];
                                 const entry = viewportEntries.find(
                                   (e) => e.id === incident.entryIds[0],
@@ -604,8 +900,9 @@ export const InvestigationsPanel = (): JSX.Element => {
                         <button
                           onClick={async () => {
                             const viewportEntries =
-                              useViewerStore.getState().viewportEntriesByPath[selectedFilePath] ||
-                              [];
+                              useViewerStore.getState().viewportEntriesByPath[
+                                selectedFilePath || ''
+                              ] || [];
                             const incidentEntries = viewportEntries.filter((entry) =>
                               incident.entryIds.includes(entry.id),
                             );
@@ -642,7 +939,7 @@ export const InvestigationsPanel = (): JSX.Element => {
 
                             await useAiStore
                               .getState()
-                              .findSimilarIncidents(selectedFilePath, incident.id);
+                              .findSimilarIncidents(selectedFilePath || '', incident.id);
                           }}
                           disabled={isAiLoading}
                           className="text-[9px] text-emerald-400 font-bold hover:underline flex items-center gap-0.5 disabled:opacity-50"
@@ -660,7 +957,7 @@ export const InvestigationsPanel = (): JSX.Element => {
 
         {/* TAB 3: STATE TIMELINE TRANSITIONS */}
         {activeTab === 'states' && (
-          <div className="p-3 space-y-3">
+          <div className="p-3.5 space-y-3">
             <div className="text-[10px] font-bold text-subtle tracking-wider uppercase mb-2">
               Kiosk State Transitions
             </div>
@@ -685,12 +982,10 @@ export const InvestigationsPanel = (): JSX.Element => {
                 <div className="relative pl-4 border-l border-ink-800 ml-2.5 space-y-4">
                   {stateSequence.transitions.map((t, idx) => (
                     <div key={idx} className="relative group">
-                      {/* Left timeline connecting dot */}
                       <span className="absolute -left-[20.5px] top-1 w-2.5 h-2.5 rounded-full bg-ink-800 border border-ink-950 flex items-center justify-center group-hover:bg-accent transition">
                         <span className="w-1 h-1 bg-ink-950 rounded-full" />
                       </span>
 
-                      {/* Transition Card */}
                       <div
                         onClick={() => scrollToLineRowIndex(t.lineNumber - 1)}
                         className="p-2 border border-ink-850 bg-ink-900/40 rounded hover:bg-ink-900 hover:border-accent/40 cursor-pointer transition space-y-1"
@@ -722,7 +1017,7 @@ export const InvestigationsPanel = (): JSX.Element => {
 
         {/* TAB 4: CASCADING FAILURE CHAINS */}
         {activeTab === 'chains' && (
-          <div className="p-3 space-y-3">
+          <div className="p-3.5 space-y-3">
             <div className="text-[10px] font-bold text-subtle tracking-wider uppercase">
               Detected Cascading Failures ({failureChains.length})
             </div>
@@ -749,7 +1044,6 @@ export const InvestigationsPanel = (): JSX.Element => {
                         {chain.description}
                       </div>
 
-                      {/* Cascading Node Indicators */}
                       <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
                         {chain.orderedIncidents.map((ci, idx) => (
                           <div key={ci.id} className="flex items-center gap-1.5">
@@ -761,7 +1055,6 @@ export const InvestigationsPanel = (): JSX.Element => {
                         ))}
                       </div>
 
-                      {/* Key Open Troubleshooting Questions */}
                       {chain.openQuestions.length > 0 && (
                         <div className="mt-2.5 p-2 bg-ink-950 border border-ink-850 rounded space-y-1">
                           <div className="text-[9px] font-bold text-warning uppercase">
@@ -784,7 +1077,7 @@ export const InvestigationsPanel = (): JSX.Element => {
 
         {/* TAB 5: DOMAIN RULE ENGINE */}
         {activeTab === 'rules' && (
-          <div className="p-3 space-y-3">
+          <div className="p-3.5 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-subtle tracking-wider uppercase">
                 SLA Compliance Auditor
@@ -858,20 +1151,24 @@ export const InvestigationsPanel = (): JSX.Element => {
                               <button
                                 key={id}
                                 onClick={async () => {
-                                  // Search for matching log line from evidence list
                                   try {
                                     const client = getEngineWorkerClient();
-                                    await client.request({
+                                    const res = await client.request({
                                       type: 'getVisibleWindow',
                                       requestId: `rule-ev:${id}:${Date.now()}`,
                                       sourceId: selectedFilePath,
                                       startRow: 0,
                                       endRow: 1,
                                     });
-                                    // Alternatively, we can let user bookmark or we just jump coordinates if index exists
-                                    // For now, scroll to approximate line row index using a simple mapper
+                                    // Navigate to rule coordinates
+                                    if (res.type === 'getVisibleWindow:done' && res.window) {
+                                      scrollToLineRowIndex(res.window.startRow);
+                                    }
                                   } catch (e) {
-                                    console.warn('Failed to request visible window for rule validation', e);
+                                    console.warn(
+                                      'Failed to request visible window for rule validation',
+                                      e,
+                                    );
                                   }
                                 }}
                                 className="bg-ink-900 border border-danger/25 text-danger font-bold text-[8px] px-1.5 py-0.5 rounded hover:border-danger transition"
@@ -887,6 +1184,511 @@ export const InvestigationsPanel = (): JSX.Element => {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 6:💼 CASES MANAGEMENT */}
+        {activeTab === 'cases' && (
+          <div className="p-3.5 space-y-4">
+            <div className="text-[10px] font-bold text-subtle tracking-wider uppercase">
+              Investigation Cases Directory
+            </div>
+
+            {/* Case Creator */}
+            <div className="space-y-2 p-3 bg-ink-900 border border-ink-800 rounded-lg">
+              <span className="text-[10px] font-bold text-accent">Initialize New Case</span>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCaseTitleInput}
+                  onChange={(e) => setNewCaseTitleInput(e.target.value)}
+                  placeholder="Case title (e.g. SLA Audit #3)"
+                  className="flex-1 bg-ink-950 border border-ink-800 rounded px-2.5 py-1 text-xs text-readable placeholder-subtle focus:outline-none focus:border-accent"
+                />
+                <button
+                  onClick={handleCreateCase}
+                  className="bg-accent hover:bg-accent-light text-ink-950 px-4 py-1 rounded text-xs font-bold transition shrink-0"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+
+            {/* Import / Export Controls */}
+            <div className="flex gap-2.5">
+              <button
+                onClick={handleImportCaseClick}
+                className="flex-1 bg-ink-900 hover:bg-ink-850 border border-ink-700 text-readable text-xs py-2 px-3 rounded font-bold transition text-center"
+              >
+                📥 Import Case Bundle
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImportCaseFile}
+                accept=".json"
+                className="hidden"
+              />
+            </div>
+
+            {/* Catalog List */}
+            <div className="space-y-2">
+              <span className="text-[9px] font-bold text-subtle uppercase tracking-wider">
+                Saved Case Bundles ({investigationsList.length})
+              </span>
+              {investigationsList.length === 0 ? (
+                <div className="text-xs text-subtle italic p-3 text-center bg-ink-900/10 rounded">
+                  No cases listed.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {investigationsList.map((id) => {
+                    const caseObj = investigationsById[id];
+                    if (!caseObj) return null;
+                    const isActive = activeInvestigationId === id;
+
+                    return (
+                      <div
+                        key={id}
+                        className={`p-2.5 border rounded-lg transition flex flex-col gap-2 ${
+                          isActive
+                            ? 'border-accent bg-accent-soft/10'
+                            : 'border-ink-800 bg-ink-900/40 hover:bg-ink-900'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-extrabold text-readable truncate block">
+                              {caseObj.title}
+                            </span>
+                            <span className="text-[8px] text-subtle font-bold block pt-0.5">
+                              Created: {new Date(caseObj.createdAt).toLocaleDateString()} |{' '}
+                              {caseObj.bookmarks.length} Bookmarks
+                            </span>
+                          </div>
+                          {isActive && (
+                            <span className="text-[8px] bg-accent text-ink-950 font-bold px-1.5 py-0.2 rounded shrink-0">
+                              ACTIVE
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-1 border-t border-ink-800/30">
+                          {!isActive && (
+                            <button
+                              onClick={() => {
+                                  useInvestigationStore.getState().setActiveInvestigation(id);
+                                }}
+                              className="text-[9px] bg-ink-800 hover:bg-ink-700 text-readable font-bold px-2 py-0.5 rounded transition border border-ink-700"
+                            >
+                              Switch to Case
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleExportCase(id, caseObj.title)}
+                            className="text-[9px] bg-ink-850 hover:bg-ink-800 text-accent font-bold px-2 py-0.5 rounded transition border border-ink-750"
+                          >
+                            Export
+                          </button>
+                          <button
+                            onClick={() => deleteInvestigationCase(id)}
+                            className="text-[9px] text-danger hover:underline px-1 font-bold"
+                          >
+                            Purge
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 7:🕸️ EXPLAINABLE RELATIONSHIP GRAPH */}
+        {activeTab === 'graph' && (
+          <div className="p-3.5 space-y-4">
+            <div className="space-y-1">
+              <div className="text-[10px] font-bold text-subtle tracking-wider uppercase">
+                Incident Knowledge Graph
+              </div>
+              <div className="text-[9px] text-subtle leading-relaxed">
+                Explainable structural nodes mapping root anomalies, hardware triggers, and rule compliance.
+              </div>
+            </div>
+
+            {!incidentGraph || incidentGraph.nodes.length === 0 ? (
+              <div className="text-xs text-subtle italic p-4 text-center bg-ink-900/20 rounded">
+                Analyze logs to compile the explainable incident relationship graph.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-[9px] font-bold text-accent uppercase tracking-wider">
+                  Graph Node Explorer ({incidentGraph.nodes.length} structural elements)
+                </div>
+
+                <div className="space-y-2">
+                  {incidentGraph.nodes.map((node) => {
+                    const isExpanded = expandedGraphNodeId === node.id;
+                    const connectedEdges =
+                      incidentGraph.edges.filter(
+                        (e) => e.sourceId === node.id || e.targetId === node.id,
+                      ) || [];
+
+                    let nodeIcon = '⏺️';
+                    let badgeColor = 'bg-ink-800 text-subtle';
+
+                    if (node.type === 'incident') {
+                      nodeIcon = '⚠️';
+                      badgeColor = 'bg-danger text-readable';
+                    } else if (node.type === 'hardware') {
+                      nodeIcon = '🔌';
+                      badgeColor = 'bg-warning text-ink-950';
+                    } else if (node.type === 'state') {
+                      nodeIcon = '🔄';
+                      badgeColor = 'bg-info text-readable';
+                    } else if (node.type === 'rule') {
+                      nodeIcon = '🛡️';
+                      badgeColor = 'bg-success text-readable';
+                    }
+
+                    return (
+                      <div
+                        key={node.id}
+                        className={`border rounded-lg transition overflow-hidden ${
+                          isExpanded
+                            ? 'border-accent/40 bg-ink-900/40'
+                            : 'border-ink-800 bg-ink-900/20 hover:bg-ink-900/40'
+                        }`}
+                      >
+                        {/* Header Trigger */}
+                        <div
+                          onClick={() =>
+                            setExpandedGraphNodeId(isExpanded ? null : node.id)
+                          }
+                          className="p-2.5 cursor-pointer flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="shrink-0">{nodeIcon}</span>
+                            <span className="text-xs font-bold text-readable truncate">
+                              {node.label}
+                            </span>
+                          </div>
+                          <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded shrink-0 ${badgeColor}`}>
+                            {node.type.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {/* Expandable Accordion Causal Links */}
+                        {isExpanded && (
+                          <div className="p-2.5 pt-0 border-t border-ink-800/40 bg-ink-950/40 space-y-2.5 text-[10px]">
+                            {node.description && (
+                              <div className="text-subtle italic border-l border-ink-700 pl-2 leading-relaxed">
+                                {node.description}
+                              </div>
+                            )}
+
+                            {/* Node Connections */}
+                            <div className="space-y-1.5">
+                              <span className="text-[8px] font-bold text-accent uppercase tracking-wider">
+                                Causal Relationships:
+                              </span>
+                              {connectedEdges.length === 0 ? (
+                                <div className="text-[9px] text-subtle italic">
+                                  No structural linkages declared.
+                                </div>
+                              ) : (
+                                <div className="space-y-1">
+                                  {connectedEdges.map((edge, edgeIdx) => {
+                                    const isSource = edge.sourceId === node.id;
+                                    const otherNodeId = isSource ? edge.targetId : edge.sourceId;
+                                    const otherNode = incidentGraph.nodes.find(
+                                      (n) => n.id === otherNodeId,
+                                    );
+
+                                    return (
+                                      <div
+                                        key={edgeIdx}
+                                        className="flex items-center gap-1.5 p-1 bg-ink-900 border border-ink-850 rounded text-[9px]"
+                                      >
+                                        <span className="text-accent font-bold">
+                                          {isSource ? 'Outflow ➔' : 'Inflow 👤'}
+                                        </span>
+                                        <span className="text-readable truncate font-extrabold max-w-[120px]">
+                                          {otherNode?.label || otherNodeId}
+                                        </span>
+                                        <span className="text-subtle font-bold">
+                                          ({edge.relationship.toUpperCase()} - {Math.round(edge.confidence * 100)}% conf)
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 8:🔄 CHRONOLOGICAL REPLAY PLAYER */}
+        {activeTab === 'replay' && (
+          <div className="p-3.5 space-y-4">
+            <div className="text-[10px] font-bold text-subtle tracking-wider uppercase">
+              Operational Replay Panel
+            </div>
+
+            {!stateSequence || stateSequence.transitions.length === 0 ? (
+              <div className="text-xs text-subtle italic p-4 text-center bg-ink-900/20 rounded">
+                Reconstruct a state transition sequence first to activate replay functions.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Visual Player Board */}
+                <div className="p-3 bg-ink-900 border border-ink-800 rounded-xl space-y-3.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[9px] font-extrabold text-subtle uppercase">
+                      Chronology Replay
+                    </span>
+                    <span className="text-[10px] font-bold text-accent bg-accent-soft/20 border border-accent/30 px-1.5 py-0.2 rounded uppercase animate-pulse">
+                      State: {stateSequence.currentState}
+                    </span>
+                  </div>
+
+                  {/* Playback Controls Row */}
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => setIsPlaying(!isPlaying)}
+                      className={`w-14 py-1.5 rounded text-xs font-bold transition ${
+                        isPlaying
+                          ? 'bg-rose-500 hover:bg-rose-600 text-readable'
+                          : 'bg-accent hover:bg-accent-light text-ink-950'
+                      }`}
+                    >
+                      {isPlaying ? '⏸️ PAUSE' : '▶️ PLAY'}
+                    </button>
+
+                    {/* Speed Selector */}
+                    <div className="flex items-center border border-ink-700 bg-ink-950 rounded overflow-hidden">
+                      {([1, 2, 5, 10] as const).map((speed) => (
+                        <button
+                          key={speed}
+                          onClick={() => setPlaybackSpeed(speed)}
+                          className={`px-2 py-1 text-[10px] font-bold transition border-r border-ink-800 last:border-r-0 ${
+                            playbackSpeed === speed
+                              ? 'bg-accent text-ink-950'
+                              : 'bg-transparent text-subtle hover:text-readable'
+                          }`}
+                        >
+                          {speed}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Scrubbing Progress Timeline Bar */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[9px] text-subtle font-bold">
+                      <span>Index: {currentTransitionIdx + 1} / {stateSequence.transitions.length}</span>
+                      <span>Line: {currentTransitionIdx >= 0 ? stateSequence.transitions[currentTransitionIdx]?.lineNumber : 'None'}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="-1"
+                      max={stateSequence.transitions.length - 1}
+                      value={currentTransitionIdx}
+                      onChange={(e) => handleScrub(parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-ink-950 border border-ink-750 rounded-lg appearance-none cursor-pointer accent-accent"
+                    />
+                  </div>
+                </div>
+
+                {/* Chronology Step Viewport list */}
+                <div className="space-y-2">
+                  <span className="text-[9px] font-bold text-subtle uppercase tracking-wider block">
+                    Replay Frame Sequence ({stateSequence.transitions.length} transitions)
+                  </span>
+
+                  <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                    {stateSequence.transitions.map((trans, idx) => {
+                      const isActive = currentTransitionIdx === idx;
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => handleScrub(idx)}
+                          className={`p-2 border rounded cursor-pointer transition select-none flex items-center justify-between gap-3 text-xs ${
+                            isActive
+                              ? 'border-accent bg-accent-soft/10 text-readable'
+                              : 'border-ink-850 bg-ink-900/20 text-subtle hover:bg-ink-900/40 hover:text-readable'
+                          }`}
+                        >
+                          <div className="truncate flex-1">
+                            <span className="font-extrabold text-[10px] block">
+                              {trans.fromState} ➔ {trans.toState}
+                            </span>
+                            <span className="text-[8px] truncate block opacity-75">
+                              {trans.triggerMessage}
+                            </span>
+                          </div>
+                          <span className="text-[9px] font-extrabold bg-ink-900 px-1 py-0.5 rounded border border-ink-800 shrink-0">
+                            Line {trans.lineNumber}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 9:🛡️ CUSTOM REGEX RULE COMPILER */}
+        {activeTab === 'customRules' && (
+          <div className="p-3.5 space-y-4">
+            <div className="text-[10px] font-bold text-subtle tracking-wider uppercase">
+              Custom Operational SLA Builder
+            </div>
+
+            {/* Custom SLA Rule Creator Form */}
+            <div className="p-3.5 bg-ink-900 border border-ink-800 rounded-xl space-y-3.5">
+              <span className="text-[10px] font-bold text-accent block">Compile Telemetry Rule</span>
+
+              {/* Form Input fields */}
+              <div className="space-y-3 text-xs">
+                {/* Rule Name */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-subtle uppercase block">
+                    Rule Name
+                  </label>
+                  <input
+                    type="text"
+                    value={ruleName}
+                    onChange={(e) => setRuleName(e.target.value)}
+                    placeholder="Merchant API Timeout Check"
+                    className="w-full bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-readable placeholder-subtle focus:outline-none focus:border-accent"
+                  />
+                </div>
+
+                {/* Regex Pattern */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-subtle uppercase block">
+                    Regex Pattern / String Match
+                  </label>
+                  <input
+                    type="text"
+                    value={rulePattern}
+                    onChange={(e) => setRulePattern(e.target.value)}
+                    placeholder="api_gateway.*timeout"
+                    className="w-full bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-readable placeholder-subtle focus:outline-none focus:border-accent"
+                  />
+                </div>
+
+                {/* Expected Behavior */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-subtle uppercase block">
+                    Expected Behavior Description
+                  </label>
+                  <input
+                    type="text"
+                    value={ruleExpected}
+                    onChange={(e) => setRuleExpected(e.target.value)}
+                    placeholder="API authorization requests must return inside SLA bounds"
+                    className="w-full bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-readable placeholder-subtle focus:outline-none focus:border-accent"
+                  />
+                </div>
+
+                {/* Category & Severity Grid */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-subtle uppercase block">
+                      Category
+                    </label>
+                    <select
+                      value={ruleCategory}
+                      onChange={(e) =>
+                        setRuleCategory(
+                          e.target.value as 'payment' | 'hardware' | 'network' | 'system',
+                        )
+                      }
+                      className="w-full bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-readable focus:outline-none"
+                    >
+                      <option value="payment">payment</option>
+                      <option value="hardware">hardware</option>
+                      <option value="network">network</option>
+                      <option value="system">system</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-subtle uppercase block">
+                      Severity
+                    </label>
+                    <select
+                      value={ruleSeverity}
+                      onChange={(e) => setRuleSeverity(e.target.value as 'error' | 'warn')}
+                      className="w-full bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-readable focus:outline-none"
+                    >
+                      <option value="error">error</option>
+                      <option value="warn">warn</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Add Rule trigger */}
+                <button
+                  onClick={handleCreateCustomRule}
+                  className="w-full bg-accent hover:bg-accent-light text-ink-950 py-2 rounded text-xs font-bold transition"
+                >
+                  Save & Audit Custom SLA Rule
+                </button>
+              </div>
+            </div>
+
+            {/* Custom Rules List in active bundle */}
+            <div className="space-y-2">
+              <span className="text-[9px] font-bold text-subtle uppercase tracking-wider block">
+                Active Custom Rules in Case Bundle
+              </span>
+
+              {(!activeInv?.customRules || activeInv.customRules.length === 0) ? (
+                <div className="text-xs text-subtle italic p-3.5 text-center bg-ink-900/10 border border-dashed border-ink-800 rounded-lg">
+                  No custom SLA rules loaded yet. Create one above to test!
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {activeInv.customRules.map((rule) => {
+                    return (
+                      <div
+                        key={rule.ruleId}
+                        className="p-2.5 bg-ink-900 border border-ink-800 rounded-lg flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="truncate flex-1">
+                          <span className="font-extrabold text-readable truncate block">
+                            {rule.name}
+                          </span>
+                          <span className="text-[9px] text-accent block opacity-75 font-mono">
+                            Pattern: {rule.pattern}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => deleteCustomRule(rule.ruleId)}
+                          className="text-danger hover:text-danger-light font-bold text-[10px] shrink-0"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

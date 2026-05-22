@@ -2,6 +2,11 @@ import { useEffect, useState, type JSX } from 'react';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
 import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { useViewerStore } from '@renderer/stores/viewerStore';
+import type {
+  Incident,
+  StateTransition,
+  StateTransitionSequence,
+} from '@shared/contracts/investigations';
 import type { CorrelationSequence } from '@shared/contracts/logs';
 
 interface DetectedPattern {
@@ -13,6 +18,77 @@ interface DetectedPattern {
 }
 
 const EMPTY_ARRAY: never[] = [];
+
+interface AlignedTransition {
+  state: string;
+  primary: StateTransition | undefined;
+  split: StateTransition | undefined;
+  pElapsedMs: number | null;
+  sElapsedMs: number | null;
+  deltaMs: number | null;
+}
+
+const alignTransitions = (
+  primary: StateTransitionSequence | null,
+  split: StateTransitionSequence | null,
+): AlignedTransition[] => {
+  if (!primary && !split) return [];
+
+  const aligned: AlignedTransition[] = [];
+  const pTrans = primary?.transitions || [];
+  const sTrans = split?.transitions || [];
+
+  const pStart = pTrans[0] ? Date.parse(pTrans[0].timestamp || '') : NaN;
+  const sStart = sTrans[0] ? Date.parse(sTrans[0].timestamp || '') : NaN;
+
+  const visitedSplitIndices = new Set<number>();
+
+  pTrans.forEach((pt) => {
+    const sIdx = sTrans.findIndex(
+      (st, idx) => st.toState === pt.toState && !visitedSplitIndices.has(idx),
+    );
+
+    let st: StateTransition | undefined;
+    if (sIdx !== -1) {
+      st = sTrans[sIdx];
+      visitedSplitIndices.add(sIdx);
+    }
+
+    const pTime = Date.parse(pt.timestamp || '');
+    const sTime = st ? Date.parse(st.timestamp || '') : NaN;
+
+    const pElapsed = !isNaN(pTime) && !isNaN(pStart) ? pTime - pStart : null;
+    const sElapsed = st && !isNaN(sTime) && !isNaN(sStart) ? sTime - sStart : null;
+    const delta = pElapsed !== null && sElapsed !== null ? sElapsed - pElapsed : null;
+
+    aligned.push({
+      state: pt.toState,
+      primary: pt,
+      split: st,
+      pElapsedMs: pElapsed,
+      sElapsedMs: sElapsed,
+      deltaMs: delta,
+    });
+  });
+
+  sTrans.forEach((st, idx) => {
+    if (!visitedSplitIndices.has(idx)) {
+      const sTime = Date.parse(st.timestamp || '');
+      const sElapsed = !isNaN(sTime) && !isNaN(sStart) ? sTime - sStart : null;
+
+      aligned.push({
+        state: st.toState,
+        primary: undefined,
+        split: st,
+        pElapsedMs: null,
+        sElapsedMs: sElapsed,
+        deltaMs: null,
+      });
+    }
+  });
+
+  return aligned;
+};
 
 export const TimelinePanel = (): JSX.Element => {
   const selectedFilePath = useViewerStore((state) => state.selectedFilePath);
@@ -30,11 +106,149 @@ export const TimelinePanel = (): JSX.Element => {
   const [loading, setLoading] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
 
+  const isSplitActive = useViewerStore((state) => state.isSplitActive);
+  const splitFilePath = useViewerStore((state) => state.splitFilePath);
+  const viewportSeverityStatsByPath = useViewerStore((state) => state.viewportSeverityStatsByPath);
+
+  const [activeTab, setActiveTab] = useState<'correlation' | 'diff'>('correlation');
+  const [primaryStateSeq, setPrimaryStateSeq] = useState<StateTransitionSequence | null>(null);
+  const [splitStateSeq, setSplitStateSeq] = useState<StateTransitionSequence | null>(null);
+  const [primaryIncidents, setPrimaryIncidents] = useState<Incident[]>([]);
+  const [splitIncidents, setSplitIncidents] = useState<Incident[]>([]);
+  const [diffLoading, setDiffLoading] = useState(false);
+
+  const activeCustomRules = useInvestigationStore((state) => {
+    const activeId = state.activeInvestigationId;
+    if (!activeId) return EMPTY_ARRAY;
+    return state.investigationsById[activeId]?.customRules || EMPTY_ARRAY;
+  });
+
+  const getBasename = (filePath: string | null): string => {
+    if (!filePath) return '';
+    const parts = filePath.split(/[\\/]/);
+    return parts[parts.length - 1] || filePath;
+  };
+
+  const getBootDelayMs = (sequence: StateTransitionSequence | null): number | null => {
+    if (!sequence) return null;
+    const booting = sequence.transitions.find((t) => t.toState === 'BOOTING');
+    const ready = sequence.transitions.find((t) => t.toState === 'READY');
+    if (booting?.timestamp && ready?.timestamp) {
+      const bTime = Date.parse(booting.timestamp);
+      const rTime = Date.parse(ready.timestamp);
+      if (!isNaN(bTime) && !isNaN(rTime)) {
+        return rTime - bTime;
+      }
+    }
+    if (ready?.timestamp && sequence.transitions[0]?.timestamp) {
+      const start = Date.parse(sequence.transitions[0].timestamp);
+      const rTime = Date.parse(ready.timestamp);
+      if (!isNaN(start) && !isNaN(rTime)) {
+        return rTime - start;
+      }
+    }
+    return null;
+  };
+
+  const formatDelay = (ms: number | null): string => {
+    if (ms === null) return 'N/A';
+    return `${(ms / 1000).toFixed(2)}s`;
+  };
+
+  const handleLineClick = (lineNumber: number, filePath: string): void => {
+    useViewerStore.getState().scrollToLineRowIndex(lineNumber - 1, filePath);
+  };
+
+  // Synchronized state & incident data loading
+  useEffect(() => {
+    if (!isSplitActive || !selectedFilePath || !splitFilePath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPrimaryStateSeq(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSplitStateSeq(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPrimaryIncidents([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSplitIncidents([]);
+      return;
+    }
+
+    const loadComparisonData = async (): Promise<void> => {
+      setDiffLoading(true);
+      try {
+        const workerClient = getEngineWorkerClient();
+        const now = Date.now();
+
+        // 1. Reconstruct States for both documents
+        const pStateRes = await workerClient.request({
+          type: 'reconstructStates',
+          requestId: `states-primary:${selectedFilePath}:${now}`,
+          sourceId: selectedFilePath,
+          customRules: activeCustomRules,
+        });
+
+        const sStateRes = await workerClient.request({
+          type: 'reconstructStates',
+          requestId: `states-split:${splitFilePath}:${now}`,
+          sourceId: splitFilePath,
+          customRules: activeCustomRules,
+        });
+
+        if (pStateRes.type === 'reconstructStates:done') {
+          setPrimaryStateSeq(pStateRes.sequence);
+        }
+        if (sStateRes.type === 'reconstructStates:done') {
+          setSplitStateSeq(sStateRes.sequence);
+        }
+
+        // 2. Detect Incidents for comparative failure analysis
+        const pIncRes = await workerClient.request({
+          type: 'detectIncidents',
+          requestId: `incidents-primary:${selectedFilePath}:${now}`,
+          sourceId: selectedFilePath,
+          customRules: activeCustomRules,
+        });
+
+        const sIncRes = await workerClient.request({
+          type: 'detectIncidents',
+          requestId: `incidents-split:${splitFilePath}:${now}`,
+          sourceId: splitFilePath,
+          customRules: activeCustomRules,
+        });
+
+        if (pIncRes.type === 'detectIncidents:done') {
+          setPrimaryIncidents(pIncRes.incidents);
+        }
+        if (sIncRes.type === 'detectIncidents:done') {
+          setSplitIncidents(sIncRes.incidents);
+        }
+      } catch (err) {
+        console.error('Failed to load synchronized comparison state diff:', err);
+      } finally {
+        setDiffLoading(false);
+      }
+    };
+
+    void loadComparisonData();
+  }, [isSplitActive, selectedFilePath, splitFilePath, activeCustomRules]);
+
+  // Automatically select target tab based on split status
+  useEffect(() => {
+    if (isSplitActive && splitFilePath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveTab('diff');
+    } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveTab('correlation');
+    }
+  }, [isSplitActive, splitFilePath]);
+
   // Load patterns and scan whenever selected file changes
   useEffect(() => {
     if (!selectedFilePath) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPatterns([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveSequence(null);
       return;
     }
@@ -240,7 +454,385 @@ export const TimelinePanel = (): JSX.Element => {
 
       {/* Right panel: Timeline sequence viewer */}
       <div className="flex flex-1 flex-col overflow-hidden bg-ink-950">
-        {activeSequence ? (
+        {/* Header Tabs (rendered only when split is active) */}
+        {isSplitActive && splitFilePath && (
+          <div className="flex items-center justify-between px-4 py-2 bg-ink-900 border-b border-ink-800 shrink-0">
+            <div className="flex space-x-1">
+              <button
+                onClick={() => setActiveTab('correlation')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition duration-150 ${
+                  activeTab === 'correlation'
+                    ? 'bg-accent text-ink-950 shadow-sm'
+                    : 'text-subtle hover:text-readable hover:bg-ink-850'
+                }`}
+              >
+                🔍 Correlation Flow
+              </button>
+              <button
+                onClick={() => setActiveTab('diff')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition duration-150 flex items-center gap-1.5 ${
+                  activeTab === 'diff'
+                    ? 'bg-accent text-ink-950 shadow-sm'
+                    : 'text-subtle hover:text-readable hover:bg-ink-850'
+                }`}
+              >
+                🔄 State Machine Diff
+                <span className="bg-danger/25 text-danger border border-danger/45 px-1 rounded text-[8px] font-black uppercase tracking-wider">
+                  Enterprise
+                </span>
+              </button>
+            </div>
+            <div className="text-[10px] text-accent/80 font-bold select-none uppercase tracking-wide">
+              Dual-Document Sync Active
+            </div>
+          </div>
+        )}
+
+        {/* Tab contents conditional routing */}
+        {activeTab === 'diff' ? (
+          diffLoading ? (
+            <div className="flex flex-col items-center justify-center flex-1 space-y-4 bg-ink-950 p-6">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+              <div className="text-xs text-subtle font-mono animate-pulse">
+                Comparing machine states & failure propagation timelines...
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col h-full overflow-hidden bg-ink-950 select-none">
+              {/* Diff Header Panel */}
+              <div className="p-4 border-b border-ink-800 bg-ink-900/30 flex flex-col space-y-3 shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-readable tracking-wide uppercase">
+                    Synchronized State Machine Comparison
+                  </div>
+                  <div className="text-[10px] text-subtle">
+                    Comparing Relative Latencies from initial BOOT
+                  </div>
+                </div>
+
+                {/* Dashboard Metrics Grid */}
+                <div className="grid grid-cols-3 gap-3">
+                  {/* Primary Doc details */}
+                  <div className="p-3 bg-ink-900/60 border border-ink-800 rounded-lg flex flex-col space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-subtle font-bold truncate max-w-[150px]">
+                        {getBasename(selectedFilePath)}
+                      </span>
+                      <span className="text-[9px] bg-accent/15 border border-accent/30 text-accent font-black px-1.5 py-0.5 rounded tracking-wide">
+                        REFERENCE (A)
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-readable mt-1">
+                      Boot Delay:{' '}
+                      <span className="text-accent font-black">
+                        {formatDelay(getBootDelayMs(primaryStateSeq))}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-subtle">
+                      Errors:{' '}
+                      <span className="text-readable font-bold">
+                        {viewportSeverityStatsByPath[selectedFilePath || '']?.error || 0}
+                      </span>{' '}
+                      | Incidents:{' '}
+                      <span className="text-readable font-bold">{primaryIncidents.length}</span>
+                    </div>
+                  </div>
+
+                  {/* Comparison Summary Card */}
+                  <div className="p-3 bg-ink-900/40 border border-ink-800/80 rounded-lg flex flex-col items-center justify-center text-center space-y-1">
+                    <div className="text-[9px] text-subtle font-bold uppercase tracking-wider">
+                      Divergence Analytics
+                    </div>
+                    {(() => {
+                      const pDelay = getBootDelayMs(primaryStateSeq);
+                      const sDelay = getBootDelayMs(splitStateSeq);
+                      const pErrors = viewportSeverityStatsByPath[selectedFilePath || '']?.error || 0;
+                      const sErrors = viewportSeverityStatsByPath[splitFilePath || '']?.error || 0;
+
+                      const delayDelta = pDelay !== null && sDelay !== null ? sDelay - pDelay : null;
+                      const errorDelta = sErrors - pErrors;
+
+                      return (
+                        <>
+                          <div className="text-[10px] font-black">
+                            {delayDelta !== null ? (
+                              delayDelta > 0 ? (
+                                <span className="text-danger">
+                                  +{formatDelay(delayDelta)} Boot Delay
+                                </span>
+                              ) : (
+                                <span className="text-success">
+                                  -{formatDelay(Math.abs(delayDelta))} Boot Delay
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-subtle">No aligned boot sequence</span>
+                            )}
+                          </div>
+                          <div className="text-[9px] font-bold">
+                            {errorDelta > 0 ? (
+                              <span className="text-danger">+{errorDelta} Unique Outage Errors</span>
+                            ) : errorDelta < 0 ? (
+                              <span className="text-success">{errorDelta} Errors</span>
+                            ) : (
+                              <span className="text-subtle">Zero net error delta</span>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Split Doc details */}
+                  <div className="p-3 bg-ink-900/60 border border-ink-800 rounded-lg flex flex-col space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-subtle font-bold truncate max-w-[150px]">
+                        {getBasename(splitFilePath)}
+                      </span>
+                      <span className="text-[9px] bg-danger/15 border border-danger/30 text-danger font-black px-1.5 py-0.5 rounded tracking-wide animate-pulse">
+                        OUTAGE RUN (B)
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-readable mt-1">
+                      Boot Delay:{' '}
+                      <span className="text-danger font-black">
+                        {formatDelay(getBootDelayMs(splitStateSeq))}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-subtle">
+                      Errors:{' '}
+                      <span className="text-readable font-bold">
+                        {viewportSeverityStatsByPath[splitFilePath || '']?.error || 0}
+                      </span>{' '}
+                      | Incidents:{' '}
+                      <span className="text-readable font-bold">{splitIncidents.length}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid of Aligned Transitions */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="text-xs font-bold text-subtle tracking-wider uppercase mb-2">
+                  Chronological State Alignment
+                </div>
+                {(() => {
+                  const aligned = alignTransitions(primaryStateSeq, splitStateSeq);
+                  if (aligned.length === 0) {
+                    return (
+                      <div className="text-xs text-subtle italic p-4 text-center">
+                        No kiosk state transitions detected in either document log buffer.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-2">
+                      {aligned.map((item, idx) => {
+                        const hasDiverged = !item.primary || !item.split;
+
+                        return (
+                          <div
+                            key={`${item.state}-${idx}`}
+                            className={`p-3 border rounded-lg bg-ink-900/30 flex items-center gap-4 transition hover:bg-ink-900/60 ${
+                              item.state === 'FAILURE'
+                                ? 'border-danger/30 bg-danger-soft/10'
+                                : hasDiverged
+                                ? 'border-warning/30 bg-warning-soft/10'
+                                : 'border-ink-800'
+                            }`}
+                          >
+                            {/* Primary Document Side */}
+                            <div className="flex-1 min-w-0">
+                              {item.primary ? (
+                                <div
+                                  onClick={() => handleLineClick(item.primary!.lineNumber, selectedFilePath!)}
+                                  className="cursor-pointer hover:bg-ink-850 p-2 rounded border border-ink-800/60 text-left space-y-1 transition group"
+                                >
+                                  <div className="flex items-center justify-between text-[9px] text-subtle font-mono font-bold">
+                                    <span className="text-accent underline group-hover:text-accent-light">
+                                      Line {item.primary.lineNumber}
+                                    </span>
+                                    <span>
+                                      Elapsed:{' '}
+                                      <span className="text-readable">
+                                        {formatDelay(item.pElapsedMs)}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-readable truncate font-mono">
+                                    {item.primary.triggerMessage}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-subtle italic text-center p-2 bg-ink-900/10 border border-dashed border-ink-800/40 rounded">
+                                  State Not Reached
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Middle State Flag */}
+                            <div className="w-40 shrink-0 flex flex-col items-center justify-center text-center">
+                              <span
+                                className={`text-[10px] font-black px-2 py-0.5 rounded border uppercase tracking-wider ${
+                                  item.state === 'FAILURE'
+                                    ? 'bg-danger/20 border-danger/55 text-danger'
+                                    : item.state === 'RECOVERY'
+                                    ? 'bg-success/20 border-success/55 text-success'
+                                    : hasDiverged
+                                    ? 'bg-warning/20 border-warning/55 text-warning'
+                                    : 'bg-info/20 border-info/55 text-info'
+                                }`}
+                              >
+                                {item.state}
+                              </span>
+                              {item.deltaMs !== null && item.deltaMs !== 0 && (
+                                <span
+                                  className={`text-[9px] font-bold mt-1 px-1 rounded ${
+                                    item.deltaMs > 0
+                                      ? 'bg-danger/10 text-danger'
+                                      : 'bg-success/10 text-success'
+                                  }`}
+                                >
+                                  {item.deltaMs > 0 ? '+' : ''}
+                                  {(item.deltaMs / 1000).toFixed(3)}s
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Split Document Side */}
+                            <div className="flex-1 min-w-0">
+                              {item.split ? (
+                                <div
+                                  onClick={() => handleLineClick(item.split!.lineNumber, splitFilePath!)}
+                                  className="cursor-pointer hover:bg-ink-850 p-2 rounded border border-ink-800/60 text-left space-y-1 transition group"
+                                >
+                                  <div className="flex items-center justify-between text-[9px] text-subtle font-mono font-bold">
+                                    <span className="text-accent underline group-hover:text-accent-light">
+                                      Line {item.split.lineNumber}
+                                    </span>
+                                    <span>
+                                      Elapsed:{' '}
+                                      <span className="text-readable">
+                                        {formatDelay(item.sElapsedMs)}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-readable truncate font-mono">
+                                    {item.split.triggerMessage}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-subtle italic text-center p-2 bg-ink-900/10 border border-dashed border-ink-800/40 rounded">
+                                  State Not Reached
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Aligned / Comparative Diagnostics - Divergent Incidents */}
+              <div className="p-4 border-t border-ink-800 bg-ink-900/20 shrink-0">
+                <div className="text-xs font-bold text-accent tracking-wider uppercase mb-3">
+                  Comparative Diagnostics: Divergent Incidents
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Left unique */}
+                  <div className="space-y-2">
+                    <div className="text-[10px] text-subtle font-bold uppercase">
+                      Unique to Reference (A)
+                    </div>
+                    {(() => {
+                      const unique = primaryIncidents.filter(
+                        (pi) =>
+                          !splitIncidents.some(
+                            (si) => si.category === pi.category && si.title === pi.title,
+                          ),
+                      );
+
+                      if (unique.length === 0) {
+                        return (
+                          <div className="text-[10px] text-subtle italic p-2 bg-ink-900/10 rounded">
+                            No unique reference incidents.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                          {unique.map((inc) => (
+                            <div
+                              key={inc.id}
+                              className="p-2 border border-ink-800 bg-ink-900/50 rounded flex flex-col space-y-1"
+                            >
+                              <div className="flex items-center justify-between text-[9px]">
+                                <span className="font-bold text-accent">{inc.category}</span>
+                                <span className="text-subtle font-mono">{inc.timestampStart}</span>
+                              </div>
+                              <div className="text-[11px] font-bold text-readable">
+                                {inc.title}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Right unique */}
+                  <div className="space-y-2">
+                    <div className="text-[10px] text-subtle font-bold uppercase flex items-center justify-between">
+                      <span>Unique to Outage (B)</span>
+                      <span className="text-[8px] bg-danger/25 border border-danger/45 text-danger px-1 rounded font-black animate-pulse">
+                        OUTAGE SIGNAL
+                      </span>
+                    </div>
+                    {(() => {
+                      const unique = splitIncidents.filter(
+                        (si) =>
+                          !primaryIncidents.some(
+                            (pi) => pi.category === si.category && pi.title === si.title,
+                          ),
+                      );
+
+                      if (unique.length === 0) {
+                        return (
+                          <div className="text-[10px] text-subtle italic p-2 bg-ink-900/10 rounded">
+                            No unique outage incidents detected.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                          {unique.map((inc) => (
+                            <div
+                              key={inc.id}
+                              className="p-2 border border-danger/20 bg-danger-soft/10 rounded flex flex-col space-y-1"
+                            >
+                              <div className="flex items-center justify-between text-[9px]">
+                                <span className="font-bold text-danger">{inc.category}</span>
+                                <span className="text-subtle font-mono">{inc.timestampStart}</span>
+                              </div>
+                              <div className="text-[11px] font-bold text-readable">
+                                {inc.title}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        ) : activeSequence ? (
           <div className="flex flex-col h-full overflow-hidden">
             {/* Header metadata summary */}
             <div className="flex items-center justify-between p-4 border-b border-ink-800 bg-ink-900/30">
@@ -330,7 +922,8 @@ export const TimelinePanel = (): JSX.Element => {
                       </span>
 
                       <div
-                        className={`p-3 border rounded-lg transition duration-150 hover:bg-ink-900 ${
+                        onClick={() => handleLineClick(entry.lineNumber, selectedFilePath!)}
+                        className={`p-3 border rounded-lg cursor-pointer transition duration-150 hover:bg-ink-900 ${
                           isBookmarked
                             ? 'border-amber-400/40 bg-amber-400/[0.04] text-amber-300'
                             : sevColor

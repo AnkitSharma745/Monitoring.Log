@@ -1,3 +1,5 @@
+import type { ExtractedRule } from './knowledge';
+
 export type InvestigationMode =
   | 'liveMonitoring'
   | 'investigation'
@@ -102,6 +104,9 @@ export interface Investigation {
   bookmarks: EvidenceBookmark[];
   notes: string;
   snapshots: InvestigationSnapshot[];
+
+  // Phase 8 Custom Rule inject capability
+  customRules?: ExtractedRule[];
 }
 
 export interface InvestigationTimelineEvent {
@@ -121,4 +126,32 @@ export interface FailureChainCandidate {
   orderedIncidents: Incident[];
   probability: number;
   openQuestions: string[];
+}
+
+// Phase 8 Lightweight Knowledge Graph Structure
+export interface GraphNode {
+  id: string;
+  type: 'incident' | 'hardware' | 'state' | 'rule' | 'symptom' | 'log_reference';
+  label: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  sourceId: string;
+  targetId: string;
+  relationship: string; // "triggers" | "violates" | "affects" | "correlated_with"
+  confidence: number;
+}
+
+export interface IncidentKnowledgeGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+// Phase 8 Operational Degradation Scoring Structures
+export interface OperationalDegradationResult {
+  score: number; // 0 to 100
+  level: 'nominal' | 'degraded' | 'critical';
+  factors: string[];
 }

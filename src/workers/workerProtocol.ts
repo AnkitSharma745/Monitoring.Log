@@ -4,11 +4,14 @@ import type {
   StateTransitionSequence,
   DomainRuleResult,
   FailureChainCandidate,
+  IncidentKnowledgeGraph,
+  OperationalDegradationResult,
 } from '@shared/contracts/investigations';
 import type {
   IngestedDocument,
   KnowledgeQueryResult,
   TroubleshooterMatch,
+  ExtractedRule,
 } from '@shared/contracts/knowledge';
 import type { LogChunk, StructuredLogEntry, VisibleLogWindow, CorrelationSequence } from '@shared/contracts/logs';
 import type { SearchQuery, SearchResult } from '@shared/contracts/search';
@@ -71,11 +74,13 @@ export type EngineWorkerRequest =
       type: 'detectIncidents';
       requestId: string;
       sourceId: string;
+      customRules?: ExtractedRule[];
     }
   | {
       type: 'reconstructStates';
       requestId: string;
       sourceId: string;
+      customRules?: ExtractedRule[];
     }
   | {
       type: 'detectFailureChains';
@@ -87,6 +92,7 @@ export type EngineWorkerRequest =
       type: 'validateDomainRules';
       requestId: string;
       sourceId: string;
+      customRules?: ExtractedRule[];
     }
   // Phase 5 Ingestion and Knowledge retrieval
   | {
@@ -123,6 +129,22 @@ export type EngineWorkerRequest =
       type: 'runInvestigationAssist';
       requestId: string;
       evidencePack: EvidencePack;
+    }
+  // Phase 8 Enterprise Requests
+  | {
+      type: 'compileIncidentGraph';
+      requestId: string;
+      sourceId: string;
+      incidents: Incident[];
+      sequence: StateTransitionSequence | null;
+      ruleResults: DomainRuleResult[];
+    }
+  | {
+      type: 'calculateDegradationScore';
+      requestId: string;
+      sourceId: string;
+      incidents: Incident[];
+      ruleResults: DomainRuleResult[];
     };
 
 export type EngineWorkerResponse =
@@ -221,6 +243,17 @@ export type EngineWorkerResponse =
       type: 'runInvestigationAssist:done';
       requestId: string;
       response: AiEvidenceResponse;
+    }
+  // Phase 8 Enterprise Responses
+  | {
+      type: 'compileIncidentGraph:done';
+      requestId: string;
+      graph: IncidentKnowledgeGraph;
+    }
+  | {
+      type: 'calculateDegradationScore:done';
+      requestId: string;
+      result: OperationalDegradationResult;
     }
   | {
       type: 'error';

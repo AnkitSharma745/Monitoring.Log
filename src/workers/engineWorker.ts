@@ -89,7 +89,7 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       return {
         type: 'detectIncidents:done',
         requestId: request.requestId,
-        incidents: OperationalCorrelationEngine.detectIncidents(request.sourceId, entries),
+        incidents: OperationalCorrelationEngine.detectIncidents(request.sourceId, entries, request.customRules),
       };
     }
 
@@ -98,7 +98,7 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       return {
         type: 'reconstructStates:done',
         requestId: request.requestId,
-        sequence: OperationalCorrelationEngine.reconstructStates(request.sourceId, entries),
+        sequence: OperationalCorrelationEngine.reconstructStates(request.sourceId, entries, request.customRules),
       };
     }
 
@@ -115,7 +115,8 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
 
     if (request.type === 'validateDomainRules') {
       const entries = logIndex.getEntries(request.sourceId);
-      const customRules = ingestedDocuments.flatMap((d) => d.rules);
+      const docRules = ingestedDocuments.flatMap((d) => d.rules);
+      const customRules = [...(request.customRules || []), ...docRules];
       return {
         type: 'validateDomainRules:done',
         requestId: request.requestId,
@@ -123,6 +124,30 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
           request.sourceId,
           entries,
           customRules,
+        ),
+      };
+    }
+
+    // Phase 8 Enterprise Off-Thread Core Processing Engines Routing
+    if (request.type === 'compileIncidentGraph') {
+      return {
+        type: 'compileIncidentGraph:done',
+        requestId: request.requestId,
+        graph: OperationalCorrelationEngine.compileIncidentGraph(
+          request.incidents,
+          request.sequence,
+          request.ruleResults,
+        ),
+      };
+    }
+
+    if (request.type === 'calculateDegradationScore') {
+      return {
+        type: 'calculateDegradationScore:done',
+        requestId: request.requestId,
+        result: OperationalCorrelationEngine.calculateDegradationScore(
+          request.incidents,
+          request.ruleResults,
         ),
       };
     }
