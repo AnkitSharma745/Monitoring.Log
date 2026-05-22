@@ -2,8 +2,10 @@ import { create } from 'zustand';
 
 import { unwrapIpcResponse } from '@renderer/ipc/unwrapIpcResponse';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
+import { normalizePath } from './pathUtils';
 import { useSearchStore } from './searchStore';
 import { useSettingsStore } from './settingsStore';
+import { useWorkspaceStore } from './workspaceStore';
 import type { FileContentResult } from '@shared/contracts/files';
 import type { StructuredLogEntry } from '@shared/contracts/logs';
 
@@ -34,28 +36,31 @@ interface ViewerStoreState {
   selectedFilePath: string | null;
   documentsByPath: Record<string, LoadedFileDocument>;
   mode: ViewerMode;
-  activeWindow: ViewerWindow | null;
+  activeWindowByPath: Record<string, ViewerWindow>;
   errorMessage: string | null;
   statusMessage: string | null;
   pendingOperations: number;
-  viewportEntries: StructuredLogEntry[];
-  viewportTotalRows: number;
-  viewportMatchedCount: number;
-  viewportMatchedIndices: number[];
-  viewportSeverityStats: {
-    error: number;
-    warn: number;
-    info: number;
-    debug: number;
-    neutral: number;
-    total: number;
-  };
+  viewportEntriesByPath: Record<string, StructuredLogEntry[]>;
+  viewportTotalRowsByPath: Record<string, number>;
+  viewportMatchedCountByPath: Record<string, number>;
+  viewportMatchedIndicesByPath: Record<string, number[]>;
+  viewportSeverityStatsByPath: Record<
+    string,
+    {
+      error: number;
+      warn: number;
+      info: number;
+      debug: number;
+      neutral: number;
+      total: number;
+    }
+  >;
   splitFilePath: string | null;
   isSplitActive: boolean;
   isScrollSyncActive: boolean;
   selectedLineEntry: StructuredLogEntry | null;
   setMode: (mode: ViewerMode) => void;
-  setActiveWindow: (window: ViewerWindow | null) => void;
+  setActiveWindow: (filePath: string, window: ViewerWindow | null) => void;
   selectFile: (filePath: string, upsertTab: (path: string) => void) => Promise<void>;
   loadFile: (
     filePath: string,
@@ -77,10 +82,10 @@ interface ViewerStoreState {
   setError: (msg: string | null) => void;
   setStatus: (msg: string | null) => void;
   fetchViewportEntries: (sourceId: string, startRow: number, endRow: number) => Promise<void>;
-  targetLineRowIndex: number | null;
-  scrollToLineRowIndex: (idx: number | null) => void;
+  targetLineRowIndexByPath: Record<string, number | null>;
+  scrollToLineRowIndex: (idx: number | null, filePath?: string) => void;
   setSplitActive: (active: boolean) => void;
-  selectSplitFile: (filePath: string | null) => void;
+  selectSplitFile: (filePath: string | null) => Promise<void>;
   toggleScrollSync: () => void;
   setSelectedLineEntry: (entry: StructuredLogEntry | null) => void;
 }
@@ -105,35 +110,88 @@ export const countLines = (content: string): number => {
   return content.length === 0 ? 0 : content.split(/\r?\n/).length;
 };
 
+// Deduplication map to cache loading tasks for active paths in transit
+const activeLoadPromises: Record<string, Promise<FileContentResult | null> | undefined> = {};
+
 export const useViewerStore = create<ViewerStoreState>((set, get) => ({
   selectedFilePath: null,
   documentsByPath: {},
   mode: 'tail',
-  activeWindow: null,
+  activeWindowByPath: {},
   errorMessage: null,
   statusMessage: null,
   pendingOperations: 0,
-  viewportEntries: [],
-  viewportTotalRows: 0,
-  viewportMatchedCount: 0,
-  viewportMatchedIndices: [],
-  viewportSeverityStats: { error: 0, warn: 0, info: 0, debug: 0, neutral: 0, total: 0 },
-  targetLineRowIndex: null,
+  viewportEntriesByPath: {},
+  viewportTotalRowsByPath: {},
+  viewportMatchedCountByPath: {},
+  viewportMatchedIndicesByPath: {},
+  viewportSeverityStatsByPath: {},
+  targetLineRowIndexByPath: {},
   splitFilePath: null,
   isSplitActive: false,
   isScrollSyncActive: false,
   selectedLineEntry: null,
 
-  scrollToLineRowIndex: (idx): void => {
-    set({ targetLineRowIndex: idx });
+  scrollToLineRowIndex: (idx, filePath): void => {
+    const path = normalizePath(filePath || get().selectedFilePath);
+    if (path) {
+      set((state) => ({
+        targetLineRowIndexByPath: {
+          ...state.targetLineRowIndexByPath,
+          [path]: idx,
+        },
+      }));
+    }
   },
 
   setSplitActive: (active): void => {
     set({ isSplitActive: active });
   },
 
-  selectSplitFile: (filePath): void => {
-    set({ splitFilePath: filePath });
+  selectSplitFile: async (filePath): Promise<void> => {
+    const normalized = filePath ? normalizePath(filePath) : null;
+    window.desktop.logging.log(
+      'info',
+      `Selecting split compare target file: ${normalized || 'none'}`,
+      'viewerStore.ts',
+    );
+
+    if (normalized && normalized === normalizePath(get().selectedFilePath)) {
+      window.desktop.logging.log(
+        'warn',
+        `Attempted to select the same file in split view: ${normalized}`,
+        'viewerStore.ts',
+      );
+      return; // Do not allow selecting the same file in split view
+    }
+
+    try {
+      set({ splitFilePath: normalized });
+      if (normalized && !get().documentsByPath[normalized]) {
+        window.desktop.logging.log(
+          'info',
+          `Split compare file ${normalized} not loaded. Initiating load.`,
+          'viewerStore.ts',
+        );
+        await get().loadFile(normalized, (res) => {
+          useWorkspaceStore.getState().registerFiles([res.file], async () => {});
+        });
+      }
+      window.desktop.logging.log(
+        'info',
+        `Successfully selected split compare file: ${normalized || 'none'}`,
+        'viewerStore.ts',
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      window.desktop.logging.log(
+        'error',
+        `Failed to select split file ${normalized}: ${msg}`,
+        'viewerStore.ts',
+        { error: msg },
+      );
+      throw err;
+    }
   },
 
   toggleScrollSync: (): void => {
@@ -148,8 +206,22 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     set({ mode });
   },
 
-  setActiveWindow: (activeWindow): void => {
-    set({ activeWindow });
+  setActiveWindow: (filePath, activeWindow): void => {
+    const normalizedPath = normalizePath(filePath);
+    if (activeWindow) {
+      set((state) => ({
+        activeWindowByPath: {
+          ...state.activeWindowByPath,
+          [normalizedPath]: activeWindow,
+        },
+      }));
+    } else {
+      set((state) => {
+        const next = { ...state.activeWindowByPath };
+        delete next[normalizedPath];
+        return { activeWindowByPath: next };
+      });
+    }
   },
 
   setPending: (pending): void => {
@@ -167,191 +239,256 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
   },
 
   selectFile: async (filePath, upsertTab): Promise<void> => {
-    set({
-      selectedFilePath: filePath,
-      errorMessage: null,
-    });
-    upsertTab(filePath);
-
-    if (!get().documentsByPath[filePath]) {
-      // Load file will be initiated via fileMonitorStore or direct call
+    const normalizedPath = normalizePath(filePath);
+    window.desktop.logging.log(
+      'info',
+      `Selecting active log file: ${normalizedPath}`,
+      'viewerStore.ts',
+    );
+    try {
+      set({
+        selectedFilePath: normalizedPath,
+        errorMessage: null,
+        selectedLineEntry: null,
+      });
+      upsertTab(normalizedPath);
+      window.desktop.logging.log(
+        'info',
+        `Successfully selected active log file: ${normalizedPath}`,
+        'viewerStore.ts',
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      window.desktop.logging.log(
+        'error',
+        `Failed to select active log file ${normalizedPath}: ${msg}`,
+        'viewerStore.ts',
+        { error: msg },
+      );
+      throw err;
     }
   },
 
   loadFile: async (filePath, registerFile): Promise<FileContentResult | null> => {
-    set((state) => ({
-      pendingOperations: state.pendingOperations + 1,
-      statusMessage: 'Loading initial content...',
-      errorMessage: null,
-    }));
+    const normalizedPath = normalizePath(filePath);
+    window.desktop.logging.log(
+      'info',
+      `loadFile initiated for: ${normalizedPath}`,
+      'viewerStore.ts',
+    );
 
-    try {
-      const result = unwrapIpcResponse(
-        await window.desktop.files.readFile({ filePath, maxBytes: INITIAL_READ_BYTES }),
+    // If already loading this path, wait for it and trigger callback
+    if (activeLoadPromises[normalizedPath]) {
+      window.desktop.logging.log(
+        'info',
+        `loadFile: already loading ${normalizedPath}, joining existing promise`,
+        'viewerStore.ts',
       );
-      const trimmedContent = trimContent(result.content);
+      const res = await activeLoadPromises[normalizedPath];
+      if (res) {
+        registerFile(res);
+      }
+      return res;
+    }
 
-      registerFile(result);
-
+    const loadPromise = (async (): Promise<FileContentResult | null> => {
       set((state) => ({
-        documentsByPath: {
-          ...state.documentsByPath,
-          [filePath]: {
-            content: trimmedContent.content,
-            bytesRead: result.bytesRead,
-            startOffset: result.startOffset,
-            nextOffset: result.nextOffset,
-            truncatedHead: result.truncatedHead,
-            trimmedInRenderer: trimmedContent.wasTrimmed,
-            trimmedCharacters: trimmedContent.trimmedCharacters,
-            lineCount: countLines(trimmedContent.content),
-            lastUpdatedAt: new Date().toISOString(),
-          },
-        },
+        pendingOperations: state.pendingOperations + 1,
+        statusMessage: 'Loading initial content...',
+        errorMessage: null,
       }));
 
-      // Parse and index the initial chunk off-thread in the web worker
-      const startingLineNumber = 1;
-      const initialChunk = {
-        id: `${filePath}:chunk:0`,
-        sourceId: filePath,
-        filePath,
-        byteStart: result.startOffset,
-        byteEnd: result.nextOffset,
-        lineStart: startingLineNumber,
-        lineEnd: 0,
-        contentHash: '',
-        parsedEntryCount: 0,
-        indexed: false,
-      };
-
-      const workerClient = getEngineWorkerClient();
-      let initialIndexedCount = 0;
-
       try {
-        const parseRes = await workerClient.request({
-          type: 'parseChunk',
-          requestId: `parse:${filePath}:${Date.now()}`,
-          chunk: initialChunk,
-          text: result.content,
-          startingLineNumber,
-        });
+        window.desktop.logging.log(
+          'info',
+          `loadFile: starting raw read of ${normalizedPath}`,
+          'viewerStore.ts',
+        );
+        const result = unwrapIpcResponse(
+          await window.desktop.files.readFile({
+            filePath: normalizedPath,
+            maxBytes: INITIAL_READ_BYTES,
+          }),
+        );
+        window.desktop.logging.log(
+          'info',
+          `loadFile: successfully read ${result.bytesRead} bytes from ${normalizedPath}`,
+          'viewerStore.ts',
+        );
+        const trimmedContent = trimContent(result.content);
 
-        if (parseRes.type === 'parseChunk:done') {
-          initialIndexedCount = parseRes.entries.length;
-          await workerClient.request({
-            type: 'indexEntries',
-            requestId: `index:${filePath}:${Date.now()}`,
-            sourceId: filePath,
-            entries: parseRes.entries,
+        set((state) => ({
+          documentsByPath: {
+            ...state.documentsByPath,
+            [normalizedPath]: {
+              content: trimmedContent.content,
+              bytesRead: result.bytesRead,
+              startOffset: result.startOffset,
+              nextOffset: result.nextOffset,
+              truncatedHead: result.truncatedHead,
+              trimmedInRenderer: trimmedContent.wasTrimmed,
+              trimmedCharacters: trimmedContent.trimmedCharacters,
+              lineCount: countLines(trimmedContent.content),
+              lastUpdatedAt: new Date().toISOString(),
+            },
+          },
+        }));
+
+        // Parse and index the initial chunk off-thread in the web worker
+        const startingLineNumber = 1;
+        const initialChunk = {
+          id: `${normalizedPath}:chunk:0`,
+          sourceId: normalizedPath,
+          filePath: normalizedPath,
+          byteStart: result.startOffset,
+          byteEnd: result.nextOffset,
+          lineStart: startingLineNumber,
+          lineEnd: 0,
+          contentHash: '',
+          parsedEntryCount: 0,
+          indexed: false,
+        };
+
+        const workerClient = getEngineWorkerClient();
+        let initialIndexedCount = 0;
+
+        try {
+          const parseRes = await workerClient.request({
+            type: 'parseChunk',
+            requestId: `parse:${normalizedPath}:${Date.now()}`,
+            chunk: initialChunk,
+            text: result.content,
+            startingLineNumber,
           });
 
-          // Refresh the view immediately for high responsiveness
-          const activeWin = get().activeWindow;
-          if (get().selectedFilePath === filePath) {
-            const startRow = activeWin ? activeWin.startRow : 0;
-            const endRow = activeWin ? activeWin.endRow : 100;
-            void get().fetchViewportEntries(filePath, startRow, endRow);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to parse/index initial chunk in worker:', err);
-      }
+          if (parseRes.type === 'parseChunk:done') {
+            initialIndexedCount = parseRes.entries.length;
+            await workerClient.request({
+              type: 'indexEntries',
+              requestId: `index:${normalizedPath}:${Date.now()}`,
+              sourceId: normalizedPath,
+              entries: parseRes.entries,
+            });
 
-      // Progressive Background Processing for larger files
-      const totalSizeBytes = result.file.sizeBytes;
-      if (totalSizeBytes > result.bytesRead) {
-        // Spawn progressive loading in background so we never freeze or block the renderer thread
-        setTimeout(async () => {
-          try {
-            let currentOffset = 0;
-            let chunkIdx = 1;
-            let currentLineNumber = startingLineNumber + initialIndexedCount;
-            const PROGRESSIVE_CHUNK_SIZE = 1024 * 1024; // 1MB chunks
-
-            while (currentOffset < totalSizeBytes) {
-              // Skip the range already covered by the initial load
-              if (currentOffset >= result.startOffset && currentOffset < result.nextOffset) {
-                currentOffset = result.nextOffset;
-                continue;
-              }
-
-              const endOffset = Math.min(totalSizeBytes, currentOffset + PROGRESSIVE_CHUNK_SIZE);
-
-              const chunkResult = unwrapIpcResponse(
-                await window.desktop.files.readFile({
-                  filePath,
-                  startOffset: currentOffset,
-                  endOffset,
-                }),
-              );
-
-              const chunk = {
-                id: `${filePath}:chunk:${chunkIdx}`,
-                sourceId: filePath,
-                filePath,
-                byteStart: currentOffset,
-                byteEnd: endOffset,
-                lineStart: currentLineNumber,
-                lineEnd: 0,
-                contentHash: '',
-                parsedEntryCount: 0,
-                indexed: false,
-              };
-
-              const parseRes = await workerClient.request({
-                type: 'parseChunk',
-                requestId: `parse-prog:${filePath}:${chunkIdx}:${Date.now()}`,
-                chunk,
-                text: chunkResult.content,
-                startingLineNumber: currentLineNumber,
-              });
-
-              if (parseRes.type === 'parseChunk:done') {
-                await workerClient.request({
-                  type: 'indexEntries',
-                  requestId: `index-prog:${filePath}:${chunkIdx}:${Date.now()}`,
-                  sourceId: filePath,
-                  entries: parseRes.entries,
-                });
-                currentLineNumber += parseRes.entries.length;
-              }
-
-              currentOffset = endOffset;
-              chunkIdx++;
-
-              // Mild throttle to prevent clogging the main process IPC channel and worker thread
-              await new Promise((r) => setTimeout(r, 60));
-
-              // Progressively stream viewport row updates
-              if (get().selectedFilePath === filePath) {
-                const activeWin = get().activeWindow;
-                const startRow = activeWin ? activeWin.startRow : 0;
-                const endRow = activeWin ? activeWin.endRow : 100;
-                void get().fetchViewportEntries(filePath, startRow, endRow);
-              }
+            // Refresh the view immediately for high responsiveness
+            const activeWin = get().activeWindowByPath[normalizedPath];
+            if (get().selectedFilePath === normalizedPath) {
+              const startRow = activeWin ? activeWin.startRow : 0;
+              const endRow = activeWin ? activeWin.endRow : 100;
+              void get().fetchViewportEntries(normalizedPath, startRow, endRow);
             }
-          } catch (bgErr) {
-            console.error('Progressive chunk reading background error:', bgErr);
           }
-        }, 100);
-      }
+        } catch (err) {
+          console.error('Failed to parse/index initial chunk in worker:', err);
+        }
 
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to read file.';
-      set({ errorMessage: message });
-      window.desktop.logging.log('error', 'Unable to read file.', 'viewerStore.ts', {
-        error: message,
-      });
-      return null;
+        // Progressive Background Processing for larger files
+        const totalSizeBytes = result.file.sizeBytes;
+        if (totalSizeBytes > result.bytesRead) {
+          // Spawn progressive loading in background so we never freeze or block the renderer thread
+          setTimeout(async () => {
+            try {
+              let currentOffset = 0;
+              let chunkIdx = 1;
+              let currentLineNumber = startingLineNumber + initialIndexedCount;
+              const PROGRESSIVE_CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+
+              while (currentOffset < totalSizeBytes) {
+                // Skip the range already covered by the initial load
+                if (currentOffset >= result.startOffset && currentOffset < result.nextOffset) {
+                  currentOffset = result.nextOffset;
+                  continue;
+                }
+
+                const endOffset = Math.min(totalSizeBytes, currentOffset + PROGRESSIVE_CHUNK_SIZE);
+
+                const chunkResult = unwrapIpcResponse(
+                  await window.desktop.files.readFile({
+                    filePath: normalizedPath,
+                    startOffset: currentOffset,
+                    endOffset,
+                  }),
+                );
+
+                const chunk = {
+                  id: `${normalizedPath}:chunk:${chunkIdx}`,
+                  sourceId: normalizedPath,
+                  filePath: normalizedPath,
+                  byteStart: currentOffset,
+                  byteEnd: endOffset,
+                  lineStart: currentLineNumber,
+                  lineEnd: 0,
+                  contentHash: '',
+                  parsedEntryCount: 0,
+                  indexed: false,
+                };
+
+                const parseRes = await workerClient.request({
+                  type: 'parseChunk',
+                  requestId: `parse-prog:${normalizedPath}:${chunkIdx}:${Date.now()}`,
+                  chunk,
+                  text: chunkResult.content,
+                  startingLineNumber: currentLineNumber,
+                });
+
+                if (parseRes.type === 'parseChunk:done') {
+                  await workerClient.request({
+                    type: 'indexEntries',
+                    requestId: `index-prog:${normalizedPath}:${chunkIdx}:${Date.now()}`,
+                    sourceId: normalizedPath,
+                    entries: parseRes.entries,
+                  });
+                  currentLineNumber += parseRes.entries.length;
+                }
+
+                currentOffset = endOffset;
+                chunkIdx++;
+
+                // Mild throttle to prevent clogging the main process IPC channel and worker thread
+                await new Promise((r) => setTimeout(r, 60));
+
+                // Progressively stream viewport row updates
+                if (get().selectedFilePath === normalizedPath) {
+                  const activeWin = get().activeWindowByPath[normalizedPath];
+                  const startRow = activeWin ? activeWin.startRow : 0;
+                  const endRow = activeWin ? activeWin.endRow : 100;
+                  void get().fetchViewportEntries(normalizedPath, startRow, endRow);
+                }
+              }
+            } catch (bgErr) {
+              console.error('Progressive chunk reading background error:', bgErr);
+            }
+          }, 100);
+        }
+
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to read file.';
+        set({ errorMessage: message });
+        window.desktop.logging.log('error', 'Unable to read file.', 'viewerStore.ts', {
+          error: message,
+        });
+        return null;
+      } finally {
+        set((state) => ({ pendingOperations: Math.max(0, state.pendingOperations - 1) }));
+      }
+    })();
+
+    activeLoadPromises[normalizedPath] = loadPromise;
+
+    try {
+      const res = await loadPromise;
+      if (res) {
+        registerFile(res);
+      }
+      return res;
     } finally {
-      set((state) => ({ pendingOperations: Math.max(0, state.pendingOperations - 1) }));
+      delete activeLoadPromises[normalizedPath];
     }
   },
 
   clearActiveView: (): void => {
-    const filePath = get().selectedFilePath;
+    const filePath = normalizePath(get().selectedFilePath);
 
     if (!filePath) {
       return;
@@ -383,15 +520,45 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
   },
 
   removeFileState: (filePath): void => {
+    const normalizedPath = normalizePath(filePath);
     set((state) => {
       const documentsByPath = { ...state.documentsByPath };
-      delete documentsByPath[filePath];
+      delete documentsByPath[normalizedPath];
 
-      const selectedFilePath = state.selectedFilePath === filePath ? null : state.selectedFilePath;
+      const selectedFilePath =
+        state.selectedFilePath === normalizedPath ? null : state.selectedFilePath;
+
+      const activeWindowByPath = { ...state.activeWindowByPath };
+      delete activeWindowByPath[normalizedPath];
+
+      const viewportEntriesByPath = { ...state.viewportEntriesByPath };
+      delete viewportEntriesByPath[normalizedPath];
+
+      const viewportTotalRowsByPath = { ...state.viewportTotalRowsByPath };
+      delete viewportTotalRowsByPath[normalizedPath];
+
+      const viewportMatchedCountByPath = { ...state.viewportMatchedCountByPath };
+      delete viewportMatchedCountByPath[normalizedPath];
+
+      const viewportMatchedIndicesByPath = { ...state.viewportMatchedIndicesByPath };
+      delete viewportMatchedIndicesByPath[normalizedPath];
+
+      const viewportSeverityStatsByPath = { ...state.viewportSeverityStatsByPath };
+      delete viewportSeverityStatsByPath[normalizedPath];
+
+      const targetLineRowIndexByPath = { ...state.targetLineRowIndexByPath };
+      delete targetLineRowIndexByPath[normalizedPath];
 
       return {
         documentsByPath,
         selectedFilePath,
+        activeWindowByPath,
+        viewportEntriesByPath,
+        viewportTotalRowsByPath,
+        viewportMatchedCountByPath,
+        viewportMatchedIndicesByPath,
+        viewportSeverityStatsByPath,
+        targetLineRowIndexByPath,
       };
     });
   },
@@ -406,8 +573,9 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     changedAt,
     changeType,
   ): void => {
+    const normalizedPath = normalizePath(filePath);
     set((state) => {
-      const currentDocument = state.documentsByPath[filePath];
+      const currentDocument = state.documentsByPath[normalizedPath];
       const rawContent =
         changeType === 'reset' ? content : `${currentDocument?.content ?? ''}${content}`;
       const trimmedContent = trimContent(rawContent);
@@ -418,7 +586,7 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
       return {
         documentsByPath: {
           ...state.documentsByPath,
-          [filePath]: {
+          [normalizedPath]: {
             content: trimmedContent.content,
             bytesRead:
               changeType === 'reset' ? bytesRead : (currentDocument?.bytesRead ?? 0) + bytesRead,
@@ -438,14 +606,14 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     });
 
     // Background Web Worker parsing and indexing for live file changes
-    const currentDoc = get().documentsByPath[filePath];
+    const currentDoc = get().documentsByPath[normalizedPath];
     const startingLineNumber =
       (currentDoc?.lineCount ?? 0) + 1 - (changeType === 'reset' ? 0 : countLines(content));
     const normalizedStartLine = Math.max(1, startingLineNumber);
     const chunk = {
-      id: `${filePath}:chunk:append:${Date.now()}`,
-      sourceId: filePath,
-      filePath,
+      id: `${normalizedPath}:chunk:append:${Date.now()}`,
+      sourceId: normalizedPath,
+      filePath: normalizedPath,
       byteStart: previousOffset,
       byteEnd: nextOffset,
       lineStart: normalizedStartLine,
@@ -459,7 +627,7 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     workerClient
       .request({
         type: 'parseChunk',
-        requestId: `parse-append:${filePath}:${Date.now()}`,
+        requestId: `parse-append:${normalizedPath}:${Date.now()}`,
         chunk,
         text: content,
         startingLineNumber: normalizedStartLine,
@@ -468,15 +636,16 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
         if (parseRes.type === 'parseChunk:done') {
           await workerClient.request({
             type: 'indexEntries',
-            requestId: `index-append:${filePath}:${Date.now()}`,
-            sourceId: filePath,
+            requestId: `index-append:${normalizedPath}:${Date.now()}`,
+            sourceId: normalizedPath,
             entries: parseRes.entries,
           });
 
           // Refetch viewport entries if we are viewing this file currently
-          if (get().selectedFilePath === filePath && get().activeWindow) {
-            const { startRow, endRow } = get().activeWindow!;
-            void get().fetchViewportEntries(filePath, startRow, endRow);
+          const activeWin = get().activeWindowByPath[normalizedPath];
+          if (get().selectedFilePath === normalizedPath && activeWin) {
+            const { startRow, endRow } = activeWin;
+            void get().fetchViewportEntries(normalizedPath, startRow, endRow);
           }
         }
       })
@@ -486,6 +655,7 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
   },
 
   fetchViewportEntries: async (sourceId, startRow, endRow): Promise<void> => {
+    const normalizedSourceId = normalizePath(sourceId);
     const searchStore = useSearchStore.getState();
     const settingsStore = useSettingsStore.getState();
     const searchQuery = searchStore.searchQuery;
@@ -501,8 +671,8 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     try {
       const res = await workerClient.request({
         type: 'getVisibleWindow',
-        requestId: `window:${sourceId}:${startRow}:${endRow}:${Date.now()}`,
-        sourceId,
+        requestId: `window:${normalizedSourceId}:${startRow}:${endRow}:${Date.now()}`,
+        sourceId: normalizedSourceId,
         startRow,
         endRow,
         severityFilters,
@@ -516,20 +686,35 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
       });
 
       if (res.type === 'getVisibleWindow:done') {
-        set({
-          viewportEntries: res.window.entries,
-          viewportTotalRows: res.window.totalRows,
-          viewportMatchedCount: res.window.matchedCount ?? 0,
-          viewportMatchedIndices: res.window.matchedIndices ?? [],
-          viewportSeverityStats: res.window.severityStats ?? {
-            error: 0,
-            warn: 0,
-            info: 0,
-            debug: 0,
-            neutral: 0,
-            total: 0,
+        set((state) => ({
+          viewportEntriesByPath: {
+            ...state.viewportEntriesByPath,
+            [normalizedSourceId]: res.window.entries,
           },
-        });
+          viewportTotalRowsByPath: {
+            ...state.viewportTotalRowsByPath,
+            [normalizedSourceId]: res.window.totalRows,
+          },
+          viewportMatchedCountByPath: {
+            ...state.viewportMatchedCountByPath,
+            [normalizedSourceId]: res.window.matchedCount ?? 0,
+          },
+          viewportMatchedIndicesByPath: {
+            ...state.viewportMatchedIndicesByPath,
+            [normalizedSourceId]: res.window.matchedIndices ?? [],
+          },
+          viewportSeverityStatsByPath: {
+            ...state.viewportSeverityStatsByPath,
+            [normalizedSourceId]: res.window.severityStats ?? {
+              error: 0,
+              warn: 0,
+              info: 0,
+              debug: 0,
+              neutral: 0,
+              total: 0,
+            },
+          },
+        }));
       }
     } catch (error) {
       console.error('Failed to fetch viewport entries from worker:', error);

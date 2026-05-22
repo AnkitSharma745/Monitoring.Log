@@ -48,10 +48,17 @@ export const LogLine = ({
   const addBookmark = useInvestigationStore((state) => state.addBookmark);
   const removeBookmark = useInvestigationStore((state) => state.removeBookmark);
 
-  const bookmarks = useInvestigationStore((state) => {
+  const activeBookmarkId = useInvestigationStore((state) => {
     const activeId = state.activeInvestigationId;
-    return activeId ? state.investigationsById[activeId]?.bookmarks || [] : [];
+    if (!activeId) return null;
+    const bList = state.investigationsById[activeId]?.bookmarks;
+    if (!bList) return null;
+    const found = bList.find(
+      (b) => b.entryId === entry.id || (b.lineNumber === entry.lineNumber && b.sourceId === sourceId)
+    );
+    return found ? found.id : null;
   });
+  const isBookmarked = activeBookmarkId !== null;
 
   if (!entry) {
     return (
@@ -77,16 +84,10 @@ export const LogLine = ({
   const severityClass = severityClasses[severity] ?? severityClasses.neutral;
   const severityLabel = severityLabels[severity] ?? '';
 
-  // Bookmark state computation
-  const activeBookmark = bookmarks.find(
-    (b) => b.entryId === entry.id || (b.lineNumber === entry.lineNumber && b.sourceId === sourceId),
-  );
-  const isBookmarked = !!activeBookmark;
-
   const handleBookmarkToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isBookmarked && activeBookmark) {
-      removeBookmark(activeBookmark.id);
+    if (isBookmarked && activeBookmarkId) {
+      removeBookmark(activeBookmarkId);
     } else {
       addBookmark({
         entryId: entry.id || `line-${entry.lineNumber}-${Date.now()}`,

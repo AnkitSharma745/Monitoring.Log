@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, type JSX } from 'react';
 
-import { Badge } from '@renderer/components/ui/Badge';
 import { Button } from '@renderer/components/ui/Button';
 import { Tooltip } from '@renderer/components/ui/Tooltip';
 import { getShortcutLabel } from '@renderer/features/shortcuts/shortcutDefinitions';
@@ -240,12 +239,12 @@ export const LogToolbar = ({
             <ArrowDown size={13} />
           </Button>
         </Tooltip>
-        <Badge tone={matchCount > 0 ? 'info' : 'neutral'} className="h-6 shrink-0 text-[10px]">
+        {/* <Badge tone={matchCount > 0 ? 'info' : 'neutral'} className="h-6 shrink-0 text-[10px]">
           {matchCount} match
         </Badge>
         <Badge tone={stats.error > 0 ? 'danger' : 'neutral'} className="h-6 shrink-0 text-[10px]">
           {stats.error} err
-        </Badge>
+        </Badge> */}
       </div>
 
       <div className="flex shrink-0 items-center gap-1">

@@ -46,25 +46,29 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
   },
 
   selectNextSearchMatch: (): void => {
-    const matchedIndices = useViewerStore.getState().viewportMatchedIndices;
+    const activeFilePath = useViewerStore.getState().selectedFilePath;
+    if (!activeFilePath) return;
+    const matchedIndices = useViewerStore.getState().viewportMatchedIndicesByPath[activeFilePath] ?? [];
     const total = matchedIndices.length;
     if (total === 0) return;
     set((state) => {
       const nextIndex = (state.activeSearchMatchIndex + 1) % total;
       const targetRow = matchedIndices[nextIndex] ?? null;
-      useViewerStore.getState().scrollToLineRowIndex(targetRow);
+      useViewerStore.getState().scrollToLineRowIndex(targetRow, activeFilePath);
       return { activeSearchMatchIndex: nextIndex };
     });
   },
 
   selectPreviousSearchMatch: (): void => {
-    const matchedIndices = useViewerStore.getState().viewportMatchedIndices;
+    const activeFilePath = useViewerStore.getState().selectedFilePath;
+    if (!activeFilePath) return;
+    const matchedIndices = useViewerStore.getState().viewportMatchedIndicesByPath[activeFilePath] ?? [];
     const total = matchedIndices.length;
     if (total === 0) return;
     set((state) => {
       const prevIndex = (state.activeSearchMatchIndex - 1 + total) % total;
       const targetRow = matchedIndices[prevIndex] ?? null;
-      useViewerStore.getState().scrollToLineRowIndex(targetRow);
+      useViewerStore.getState().scrollToLineRowIndex(targetRow, activeFilePath);
       return { activeSearchMatchIndex: prevIndex };
     });
   },

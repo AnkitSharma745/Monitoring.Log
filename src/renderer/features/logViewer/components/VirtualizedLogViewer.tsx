@@ -11,6 +11,8 @@ interface VirtualizedLogViewerProps {
   filePath: string;
 }
 
+const EMPTY_ARRAY: any[] = [];
+
 export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogViewerProps>(
   ({ filePath }, ref): JSX.Element => {
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -20,11 +22,12 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
     // Forward the container DOM element so AppLayout or LogViewer parent can coordinate scroll sync direct
     useImperativeHandle(ref, () => containerRef.current!);
 
-    const viewportEntries = useViewerStore((state) => state.viewportEntries);
-    const viewportTotalRows = useViewerStore((state) => state.viewportTotalRows);
-    const viewportMatchedIndices = useViewerStore((state) => state.viewportMatchedIndices);
+    const viewportEntries = useViewerStore((state) => state.viewportEntriesByPath[filePath] ?? EMPTY_ARRAY);
+    const viewportTotalRows = useViewerStore((state) => state.viewportTotalRowsByPath[filePath] ?? 0);
+    const viewportMatchedIndices = useViewerStore((state) => state.viewportMatchedIndicesByPath[filePath] ?? EMPTY_ARRAY);
     const fetchViewportEntries = useViewerStore((state) => state.fetchViewportEntries);
     const setActiveWindow = useViewerStore((state) => state.setActiveWindow);
+    const isDocLoaded = useViewerStore((state) => Boolean(state.documentsByPath[filePath]));
 
     // Details drawer selection
     const selectedLineEntry = useViewerStore((state) => state.selectedLineEntry);
@@ -70,7 +73,7 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
       return () => observer.disconnect();
     }, []);
 
-    const targetLineRowIndex = useViewerStore((state) => state.targetLineRowIndex);
+    const targetLineRowIndex = useViewerStore((state) => state.targetLineRowIndexByPath[filePath] ?? null);
     const scrollToLineRowIndex = useViewerStore((state) => state.scrollToLineRowIndex);
 
     // Focus and scroll to target line row index
@@ -81,9 +84,9 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
           targetLineRowIndex * rowHeight - containerHeight / 2,
         );
         setScrollTop(containerRef.current.scrollTop);
-        scrollToLineRowIndex(null); // Clear target to allow clicking the same line again
+        scrollToLineRowIndex(null, filePath); // Clear target to allow clicking the same line again
       }
-    }, [targetLineRowIndex, containerHeight, rowHeight, scrollToLineRowIndex]);
+    }, [targetLineRowIndex, containerHeight, rowHeight, scrollToLineRowIndex, filePath]);
 
     // Calculate virtual row boundary bounds
     const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
@@ -94,7 +97,7 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
 
     // Sync virtual scrolling bounds with store
     useEffect(() => {
-      setActiveWindow({ sourceId: filePath, startRow, endRow });
+      setActiveWindow(filePath, { sourceId: filePath, startRow, endRow });
     }, [filePath, startRow, endRow, setActiveWindow]);
 
     // Fetch viewport log rows from the worker off-thread
@@ -208,11 +211,16 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
             {renderedLines}
           </div>
         </div>
-        {viewportTotalRows === 0 && (
+        {!isDocLoaded ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-ink-950">
+            <div className="mb-3 animate-spin h-6 w-6 rounded-full border-2 border-accent border-t-transparent" />
+            <div className="text-xs text-subtle font-mono">Loading log stream...</div>
+          </div>
+        ) : viewportTotalRows === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-subtle font-mono">
             No lines match the current filter or search.
           </div>
-        )}
+        ) : null}
       </div>
     );
   },

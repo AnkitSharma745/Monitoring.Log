@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { unwrapIpcResponse } from '@renderer/ipc/unwrapIpcResponse';
+import { normalizePath } from './pathUtils';
 import type { FileWatchErrorEvent } from '@shared/contracts/files';
 
 export interface WatchingFileState {
@@ -36,7 +37,8 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
   watchingFiles: {},
 
   startWatching: async (filePath, getNextOffset, loadFileIfNeeded): Promise<void> => {
-    if (get().watchingFiles[filePath]) {
+    const normalizedFilePath = normalizePath(filePath);
+    if (get().watchingFiles[normalizedFilePath]) {
       return;
     }
 
@@ -49,13 +51,13 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
       }
 
       const result = unwrapIpcResponse(
-        await window.desktop.files.startWatching({ filePath, startOffset: nextOffset }),
+        await window.desktop.files.startWatching({ filePath: normalizedFilePath, startOffset: nextOffset }),
       );
 
       set((state) => ({
         watchingFiles: {
           ...state.watchingFiles,
-          [result.file.path]: {
+          [normalizedFilePath]: {
             offset: result.offset,
             startedAt: new Date().toISOString(),
             lastUpdateAt: null,
@@ -76,12 +78,14 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
   },
 
   stopWatching: async (filePath): Promise<void> => {
+    const normalizedFilePath = normalizePath(filePath);
     try {
-      const result = unwrapIpcResponse(await window.desktop.files.stopWatching({ filePath }));
+      const result = unwrapIpcResponse(await window.desktop.files.stopWatching({ filePath: normalizedFilePath }));
+      const normalizedResultPath = normalizePath(result.filePath);
 
       set((state) => {
         const watchingFiles = { ...state.watchingFiles };
-        delete watchingFiles[result.filePath];
+        delete watchingFiles[normalizedResultPath];
 
         return {
           watchingFiles,
@@ -96,7 +100,7 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
   },
 
   stopAllWatching: async (): Promise<void> => {
-    const watchedPaths = Object.keys(get().watchingFiles);
+    const watchedPaths = Object.keys(get().watchingFiles).map(normalizePath);
 
     if (watchedPaths.length === 0) {
       return;
@@ -121,14 +125,15 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
   },
 
   applyWatchError: (event): void => {
+    const normalizedFilePath = normalizePath(event.filePath);
     set((state) => {
-      const watcher = state.watchingFiles[event.filePath];
+      const watcher = state.watchingFiles[normalizedFilePath];
 
       return {
         watchingFiles: watcher
           ? {
               ...state.watchingFiles,
-              [event.filePath]: {
+              [normalizedFilePath]: {
                 ...watcher,
                 lastErrorAt: event.occurredAt,
                 lastErrorMessage: event.message,
@@ -140,13 +145,14 @@ export const useWatcherStore = create<WatcherStoreState>((set, get) => ({
   },
 
   updateWatcherOffset: (filePath, nextOffset, bytesRead, changedAt): void => {
+    const normalizedFilePath = normalizePath(filePath);
     set((state) => {
-      const watcher = state.watchingFiles[filePath];
+      const watcher = state.watchingFiles[normalizedFilePath];
       if (!watcher) return state;
       return {
         watchingFiles: {
           ...state.watchingFiles,
-          [filePath]: {
+          [normalizedFilePath]: {
             ...watcher,
             offset: nextOffset,
             lastUpdateAt: changedAt,

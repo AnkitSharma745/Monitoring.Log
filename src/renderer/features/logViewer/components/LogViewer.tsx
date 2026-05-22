@@ -6,6 +6,7 @@ import { formatBytes, formatDateTime } from '@renderer/features/files/fileFormat
 import { AdvancedSettingsPanel } from '@renderer/features/layout/components/SettingsPanel';
 import { OpenLogTabs } from '@renderer/features/tabs/components/OpenLogTabs';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
+import { normalizePath } from '@renderer/stores/pathUtils';
 import { useSettingsStore } from '@renderer/stores/settingsStore';
 import { useViewerStore } from '@renderer/stores/viewerStore';
 import { LineFocusDrawer } from './LineFocusDrawer';
@@ -26,9 +27,24 @@ export const LogViewer = (): JSX.Element => {
   const activeWatcher = selectedFilePath ? watchingFiles[selectedFilePath] : null;
   const isWatching = Boolean(activeWatcher);
 
-  const rawStats = useViewerStore((state) => state.viewportSeverityStats);
-  const matchCount = useViewerStore((state) => state.viewportMatchedCount);
-  const totalRows = useViewerStore((state) => state.viewportTotalRows);
+  const rawStats = useViewerStore((state) =>
+    selectedFilePath ? state.viewportSeverityStatsByPath[selectedFilePath] : null,
+  ) ?? {
+    error: 0,
+    warn: 0,
+    info: 0,
+    debug: 0,
+    neutral: 0,
+    total: 0,
+  };
+  const matchCount =
+    useViewerStore((state) =>
+      selectedFilePath ? state.viewportMatchedCountByPath[selectedFilePath] : 0,
+    ) ?? 0;
+  const totalRows =
+    useViewerStore((state) =>
+      selectedFilePath ? state.viewportTotalRowsByPath[selectedFilePath] : 0,
+    ) ?? 0;
   const stats = {
     ...rawStats,
     visible: totalRows,
@@ -106,9 +122,11 @@ export const LogViewer = (): JSX.Element => {
   // Auto-default splitFilePath to another open tab if split layout is opened empty
   useEffect(() => {
     if (isSplitActive && !splitFilePath && selectedFilePath) {
-      const otherTab = openTabs.find((t) => t.filePath !== selectedFilePath);
+      const otherTab = openTabs.find(
+        (t) => normalizePath(t.filePath) !== normalizePath(selectedFilePath),
+      );
       if (otherTab) {
-        selectSplitFile(otherTab.filePath);
+        void selectSplitFile(otherTab.filePath);
       }
     }
   }, [isSplitActive, splitFilePath, openTabs, selectedFilePath, selectSplitFile]);
@@ -118,6 +136,25 @@ export const LogViewer = (): JSX.Element => {
       <section className="flex h-full w-full min-h-0 flex-1 flex-col bg-ink-950">
         <OpenLogTabs />
         <AdvancedSettingsPanel />
+      </section>
+    );
+  }
+
+  if (selectedFilePath && !selectedFile) {
+    return (
+      <section className="flex h-full w-full min-h-0 flex-1 flex-col bg-ink-950">
+        <OpenLogTabs />
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="max-w-sm text-center">
+            <div className="mx-auto mb-4 animate-spin flex h-8 w-8 items-center justify-center rounded-full border-2 border-accent border-t-transparent" />
+            <h1 className="text-sm font-semibold text-readable font-mono truncate max-w-xs">
+              Loading {selectedFilePath.split(/[\\/]/).at(-1)}...
+            </h1>
+            <p className="mt-1 text-xs text-muted font-mono truncate max-w-xs">
+              {selectedFilePath}
+            </p>
+          </div>
+        </div>
       </section>
     );
   }
@@ -157,11 +194,6 @@ export const LogViewer = (): JSX.Element => {
               </h1>
               <Badge className="font-mono text-[10px]">{formatBytes(selectedFile.sizeBytes)}</Badge>
               <Badge className="font-mono text-[10px]">Lines {lineCount}</Badge>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-[10px] text-muted font-mono" title={selectedFile.path}>
-                {selectedFile.path}
-              </span>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-xs text-muted font-mono">
@@ -247,15 +279,17 @@ export const LogViewer = (): JSX.Element => {
 
               <select
                 value={splitFilePath || ''}
-                onChange={(e) => selectSplitFile(e.target.value || null)}
+                onChange={(e) => void selectSplitFile(e.target.value || null)}
                 className="bg-ink-950 border border-line rounded px-1 text-[9px] text-readable focus:outline-none focus:border-accent"
               >
                 <option value="">Select compare target...</option>
-                {openTabs.map((t) => (
-                  <option key={t.filePath} value={t.filePath}>
-                    {t.filePath.split(/[\\/]/).at(-1) || t.filePath}
-                  </option>
-                ))}
+                {openTabs
+                  .filter((t) => normalizePath(t.filePath) !== normalizePath(selectedFilePath))
+                  .map((t) => (
+                    <option key={t.filePath} value={t.filePath}>
+                      {t.filePath.split(/[\\/]/).at(-1) || t.filePath}
+                    </option>
+                  ))}
               </select>
             </div>
 

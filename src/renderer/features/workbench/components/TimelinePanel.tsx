@@ -23,12 +23,14 @@ interface CorrelationSequence {
   hasErrors: boolean;
 }
 
+const EMPTY_ARRAY: any[] = [];
+
 export const TimelinePanel = (): JSX.Element => {
   const selectedFilePath = useViewerStore((state) => state.selectedFilePath);
   const bookmarks = useInvestigationStore((state) => {
     const activeId = state.activeInvestigationId;
-    if (!activeId) return [];
-    return state.investigationsById[activeId]?.bookmarks || [];
+    if (!activeId) return EMPTY_ARRAY;
+    return state.investigationsById[activeId]?.bookmarks || EMPTY_ARRAY;
   });
   const [patterns, setPatterns] = useState<DetectedPattern[]>([]);
   const [searchField, setSearchField] = useState<

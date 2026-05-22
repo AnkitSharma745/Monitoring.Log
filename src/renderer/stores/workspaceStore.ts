@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { unwrapIpcResponse } from '@renderer/ipc/unwrapIpcResponse';
+import { normalizePath } from './pathUtils';
 import type {
   DirectoryScanResult,
   LogFileMetadata,
@@ -70,6 +71,7 @@ interface WorkspaceStoreState {
   clearWorkspaceHistory: () => void;
 
   restoreWorkspaceState: (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     persisted: any,
     loadFile: (path: string) => Promise<unknown>,
     startWatching: (path: string) => Promise<void>,
@@ -235,12 +237,17 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
       return;
     }
 
+    const normalizedIncomingFiles = incomingFiles.map((file) => ({
+      ...file,
+      path: normalizePath(file.path),
+    }));
+
     set((state) => {
       const filesByPath = { ...state.filesByPath };
       let openTabs = state.openTabs;
       let recentSources = state.recentSources;
 
-      for (const file of incomingFiles) {
+      for (const file of normalizedIncomingFiles) {
         filesByPath[file.path] = file;
         openTabs = upsertOpenTabList(openTabs, file.path);
         recentSources = upsertRecentSourceList(recentSources, {
@@ -258,7 +265,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
       };
     });
 
-    const firstFile = incomingFiles[0]?.path;
+    const firstFile = normalizedIncomingFiles[0]?.path;
     if (firstFile) {
       void loadFile(firstFile);
     }
@@ -269,16 +276,26 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
       return;
     }
 
+    const normalizedIncomingDirectories = incomingDirectories.map((directory) => ({
+      ...directory,
+      root: normalizeDirectoryTreeNode(directory.root),
+      files: directory.files.map((file) => ({
+        ...file,
+        path: normalizePath(file.path),
+      })),
+    }));
+
     set((state) => {
       const directoriesByPath = new Map(
-        state.directories.map((directory) => [directory.root.path, directory]),
+        state.directories.map((directory) => [normalizePath(directory.root.path), directory]),
       );
       let recentSources = state.recentSources;
 
-      for (const directory of incomingDirectories) {
-        directoriesByPath.set(directory.root.path, directory);
+      for (const directory of normalizedIncomingDirectories) {
+        const rootPath = normalizePath(directory.root.path);
+        directoriesByPath.set(rootPath, directory);
         recentSources = upsertRecentSourceList(recentSources, {
-          path: directory.root.path,
+          path: rootPath,
           name: directory.root.name,
           kind: 'directory',
           lastOpenedAt: new Date().toISOString(),
@@ -287,20 +304,23 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
       return {
         directories: Array.from(directoriesByPath.values()).sort((left, right) =>
-          left.root.path.localeCompare(right.root.path),
+          normalizePath(left.root.path).localeCompare(normalizePath(right.root.path)),
         ),
         recentSources,
       };
     });
 
     get().registerFiles(
-      incomingDirectories.flatMap((directory) => directory.files),
+      normalizedIncomingDirectories.flatMap((directory) => directory.files),
       loadFile,
     );
   },
 
   closeTab: (filePath, selectedFilePath, setSelectedFilePath): void => {
-    const tab = get().openTabs.find((item) => item.filePath === filePath);
+    const normalizedFilePath = normalizePath(filePath);
+    const normalizedSelectedFilePath = normalizePath(selectedFilePath);
+
+    const tab = get().openTabs.find((item) => normalizePath(item.filePath) === normalizedFilePath);
 
     if (tab?.pinned) {
       set({ statusMessage: 'Pinned tabs stay open until unpinned.' });
@@ -308,9 +328,11 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     }
 
     set((state) => {
-      const nextTabs = state.openTabs.filter((item) => item.filePath !== filePath);
+      const nextTabs = state.openTabs.filter((item) => normalizePath(item.filePath) !== normalizedFilePath);
       const nextSelected =
-        selectedFilePath === filePath ? (nextTabs.at(-1)?.filePath ?? null) : selectedFilePath;
+        normalizedSelectedFilePath === normalizedFilePath
+          ? (nextTabs.at(-1)?.filePath ?? null)
+          : normalizedSelectedFilePath;
 
       setTimeout(() => setSelectedFilePath(nextSelected), 0);
 
@@ -322,15 +344,20 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   removeFile: (filePath, selectedFilePath, setSelectedFilePath): void => {
+    const normalizedFilePath = normalizePath(filePath);
+    const normalizedSelectedFilePath = normalizePath(selectedFilePath);
+
     set((state) => {
       const filesByPath = { ...state.filesByPath };
-      delete filesByPath[filePath];
+      delete filesByPath[normalizedFilePath];
 
-      const openTabs = state.openTabs.filter((tab) => tab.filePath !== filePath);
-      const recentSources = state.recentSources.filter((src) => src.path !== filePath);
+      const openTabs = state.openTabs.filter((tab) => normalizePath(tab.filePath) !== normalizedFilePath);
+      const recentSources = state.recentSources.filter((src) => normalizePath(src.path) !== normalizedFilePath);
 
       const nextSelected =
-        selectedFilePath === filePath ? (openTabs.at(-1)?.filePath ?? null) : selectedFilePath;
+        normalizedSelectedFilePath === normalizedFilePath
+          ? (openTabs.at(-1)?.filePath ?? null)
+          : normalizedSelectedFilePath;
 
       setTimeout(() => setSelectedFilePath(nextSelected), 0);
 
@@ -344,8 +371,11 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   removeDirectory: (dirPath, selectedFilePath, setSelectedFilePath): void => {
+    const normalizedDirPath = normalizePath(dirPath);
+    const normalizedSelectedFilePath = normalizePath(selectedFilePath);
+
     set((state) => {
-      const directory = state.directories.find((d) => d.root.path === dirPath);
+      const directory = state.directories.find((d) => normalizePath(d.root.path) === normalizedDirPath);
       if (!directory) {
         return state;
       }
@@ -355,7 +385,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         const filePaths: string[] = [];
         for (const child of node.children) {
           if (child.kind === 'file') {
-            filePaths.push(child.path);
+            filePaths.push(normalizePath(child.path));
           } else if (child.kind === 'directory') {
             filePaths.push(...getAllFilePaths(child));
           }
@@ -370,16 +400,16 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         delete filesByPath[filePath];
       }
 
-      const directories = state.directories.filter((d) => d.root.path !== dirPath);
-      const openTabs = state.openTabs.filter((tab) => !filePathsToRemove.has(tab.filePath));
+      const directories = state.directories.filter((d) => normalizePath(d.root.path) !== normalizedDirPath);
+      const openTabs = state.openTabs.filter((tab) => !filePathsToRemove.has(normalizePath(tab.filePath)));
       const recentSources = state.recentSources.filter(
-        (src) => src.path !== dirPath && !filePathsToRemove.has(src.path),
+        (src) => normalizePath(src.path) !== normalizedDirPath && !filePathsToRemove.has(normalizePath(src.path)),
       );
 
       const nextSelected =
-        selectedFilePath && filePathsToRemove.has(selectedFilePath)
+        normalizedSelectedFilePath && filePathsToRemove.has(normalizedSelectedFilePath)
           ? (openTabs.at(-1)?.filePath ?? null)
-          : selectedFilePath;
+          : normalizedSelectedFilePath;
 
       setTimeout(() => setSelectedFilePath(nextSelected), 0);
 
@@ -394,24 +424,27 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   pinTab: (filePath): void => {
+    const normalizedFilePath = normalizePath(filePath);
     set((state) => ({
       openTabs: state.openTabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, pinned: !tab.pinned } : tab,
+        normalizePath(tab.filePath) === normalizedFilePath ? { ...tab, pinned: !tab.pinned } : tab,
       ),
     }));
   },
 
   setTabScrollPosition: (filePath, scrollTop): void => {
+    const normalizedFilePath = normalizePath(filePath);
     set((state) => ({
       openTabs: state.openTabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, scrollTop } : tab,
+        normalizePath(tab.filePath) === normalizedFilePath ? { ...tab, scrollTop } : tab,
       ),
     }));
   },
 
   upsertOpenTab: (filePath): void => {
+    const normalizedFilePath = normalizePath(filePath);
     set((state) => ({
-      openTabs: upsertOpenTabList(state.openTabs, filePath),
+      openTabs: upsertOpenTabList(state.openTabs, normalizedFilePath),
     }));
   },
 
@@ -423,28 +456,64 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   restoreWorkspaceState: (persisted, loadFile, startWatching): void => {
+    const normalizedOpenTabs = (persisted.openTabs ?? []).map((tab: any) => ({
+      ...tab,
+      filePath: normalizePath(tab.filePath),
+    }));
+    const normalizedRecentSources = (persisted.recentSources ?? []).map((src: any) => ({
+      ...src,
+      path: normalizePath(src.path),
+    }));
+    const normalizedSelectedFilePath = persisted.selectedFilePath ? normalizePath(persisted.selectedFilePath) : null;
+    const normalizedWatchedFilePaths = (persisted.watchedFilePaths ?? []).map((p: string) => normalizePath(p));
+
     set({
-      openTabs: persisted.openTabs ?? [],
-      recentSources: persisted.recentSources ?? [],
+      openTabs: normalizedOpenTabs,
+      recentSources: normalizedRecentSources,
       statusMessage: 'Workspace restored.',
     });
 
-    for (const filePath of persisted.watchedFilePaths ?? []) {
+    for (const filePath of normalizedWatchedFilePaths) {
       void startWatching(filePath);
     }
 
-    if (persisted.selectedFilePath) {
-      void loadFile(persisted.selectedFilePath);
+    if (normalizedSelectedFilePath) {
+      void loadFile(normalizedSelectedFilePath);
+    }
+
+    // Background pre-scan metadata for all open tabs so filesByPath has their info on startup
+    const tabPaths = normalizedOpenTabs.map((t: { filePath: string }) => t.filePath);
+    if (tabPaths.length > 0) {
+      window.desktop.files
+        .scanPaths(tabPaths)
+        .then((res) => {
+          const unwrapped = unwrapIpcResponse(res);
+          if (unwrapped && unwrapped.files) {
+            set((state) => {
+              const filesByPath = { ...state.filesByPath };
+              for (const file of unwrapped.files) {
+                const normPath = normalizePath(file.path);
+                filesByPath[normPath] = { ...file, path: normPath };
+              }
+              return { filesByPath };
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to pre-scan open tab files on startup:', err);
+        });
     }
   },
 
   updateOpenTabsUnread: (filePath, activeFilePath, newLinesCount): void => {
+    const normalizedFilePath = normalizePath(filePath);
+    const normalizedActiveFilePath = normalizePath(activeFilePath);
     set((state) => ({
-      openTabs: upsertOpenTabList(state.openTabs, filePath).map((tab) =>
-        tab.filePath === filePath
+      openTabs: upsertOpenTabList(state.openTabs, normalizedFilePath).map((tab) =>
+        normalizePath(tab.filePath) === normalizedFilePath
           ? {
               ...tab,
-              unreadCount: activeFilePath === filePath ? 0 : tab.unreadCount + newLinesCount,
+              unreadCount: normalizedActiveFilePath === normalizedFilePath ? 0 : tab.unreadCount + newLinesCount,
             }
           : tab,
       ),
@@ -452,13 +521,14 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   updateFileMetadata: (filePath, sizeBytes, changedAt): void => {
+    const normalizedFilePath = normalizePath(filePath);
     set((state) => {
-      const file = state.filesByPath[filePath];
+      const file = state.filesByPath[normalizedFilePath];
       if (!file) return state;
       return {
         filesByPath: {
           ...state.filesByPath,
-          [filePath]: {
+          [normalizedFilePath]: {
             ...file,
             sizeBytes,
             modifiedAt: changedAt,
@@ -470,14 +540,15 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 }));
 
 const upsertOpenTabList = (tabs: OpenLogTab[], filePath: string): OpenLogTab[] => {
-  if (tabs.some((tab) => tab.filePath === filePath)) {
+  const normalizedPath = normalizePath(filePath);
+  if (tabs.some((tab) => normalizePath(tab.filePath) === normalizedPath)) {
     return tabs;
   }
 
   return [
     ...tabs,
     {
-      filePath,
+      filePath: normalizedPath,
       pinned: false,
       unreadCount: 0,
       openedAt: new Date().toISOString(),
@@ -491,8 +562,24 @@ const upsertRecentSourceList = (
   recentSources: RecentSourceItem[],
   item: RecentSourceItem,
 ): RecentSourceItem[] => {
-  return [item, ...recentSources.filter((source) => source.path !== item.path)].slice(
-    0,
-    MAX_RECENT_ITEMS,
-  );
+  const normalizedItem = {
+    ...item,
+    path: normalizePath(item.path),
+  };
+  return [
+    normalizedItem,
+    ...recentSources.filter((source) => normalizePath(source.path) !== normalizedItem.path),
+  ].slice(0, MAX_RECENT_ITEMS);
+};
+
+const normalizeDirectoryTreeNode = (node: DirectoryTreeNode): DirectoryTreeNode => {
+  return {
+    ...node,
+    path: normalizePath(node.path),
+    children: node.children.map((child) =>
+      child.kind === 'directory'
+        ? normalizeDirectoryTreeNode(child)
+        : { ...child, path: normalizePath(child.path) },
+    ),
+  };
 };

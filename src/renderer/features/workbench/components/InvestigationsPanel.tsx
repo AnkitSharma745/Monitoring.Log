@@ -1,10 +1,10 @@
 import { useEffect, useState, type JSX } from 'react';
+import { getEngineWorkerClient } from '@renderer/services/workerClient';
+import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 import { useInvestigationStore } from '@renderer/stores/investigationStore';
-import { useViewerStore } from '@renderer/stores/viewerStore';
 import { useSearchStore } from '@renderer/stores/searchStore';
 import { useSettingsStore } from '@renderer/stores/settingsStore';
-import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
-import { getEngineWorkerClient } from '@renderer/services/workerClient';
+import { useViewerStore } from '@renderer/stores/viewerStore';
 
 import type {
   Incident,

@@ -6,6 +6,7 @@ import { useSettingsStore } from './settingsStore';
 import { useViewerStore } from './viewerStore';
 import { useWatcherStore } from './watcherStore';
 import { useWorkspaceStore } from './workspaceStore';
+import { normalizePath } from './pathUtils';
 import type { LogSeverity } from '@renderer/features/logViewer/logParsing';
 import type {
   DirectoryScanResult,
@@ -231,7 +232,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   // Delegated Actions
   selectFilesFromDialog: async (): Promise<void> => {
     await useWorkspaceStore.getState().selectFilesFromDialog(async (path) => {
-      return get().loadFile(path);
+      return get().selectFile(path);
     });
   },
 
@@ -241,46 +242,50 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
 
   scanDroppedFiles: async (files: File[]): Promise<void> => {
     await useWorkspaceStore.getState().scanDroppedFiles(files, async (path) => {
-      return get().loadFile(path);
+      return get().selectFile(path);
     });
   },
 
   openRecentSource: async (path: string): Promise<void> => {
-    await useWorkspaceStore.getState().openRecentSource(path, async (filePath) => {
-      return get().loadFile(filePath);
+    const normalizedPath = normalizePath(path);
+    await useWorkspaceStore.getState().openRecentSource(normalizedPath, async (filePath) => {
+      return get().selectFile(normalizePath(filePath));
     });
   },
 
   selectFile: async (filePath: string): Promise<void> => {
+    const normalizedFilePath = normalizePath(filePath);
     useSettingsStore.getState().closeAdvancedSettings();
-    await useViewerStore.getState().selectFile(filePath, (path) => {
-      useWorkspaceStore.getState().upsertOpenTab(path);
+    await useViewerStore.getState().selectFile(normalizedFilePath, (path) => {
+      useWorkspaceStore.getState().upsertOpenTab(normalizePath(path));
     });
-    if (!get().documentsByPath[filePath]) {
-      await get().loadFile(filePath);
+    if (!get().documentsByPath[normalizedFilePath]) {
+      await get().loadFile(normalizedFilePath);
     }
   },
 
   loadFile: async (filePath: string): Promise<FileContentResult | null> => {
-    return useViewerStore.getState().loadFile(filePath, (res) => {
+    const normalizedFilePath = normalizePath(filePath);
+    return useViewerStore.getState().loadFile(normalizedFilePath, (res) => {
       useWorkspaceStore.getState().registerFiles([res.file], async () => {});
     });
   },
 
   startWatching: async (filePath: string): Promise<void> => {
+    const normalizedFilePath = normalizePath(filePath);
     await useWatcherStore.getState().startWatching(
-      filePath,
-      () => useViewerStore.getState().documentsByPath[filePath]?.nextOffset,
+      normalizedFilePath,
+      () => useViewerStore.getState().documentsByPath[normalizedFilePath]?.nextOffset,
       async () => {
-        if (!get().documentsByPath[filePath]) {
-          await get().loadFile(filePath);
+        if (!get().documentsByPath[normalizedFilePath]) {
+          await get().loadFile(normalizedFilePath);
         }
       },
     );
   },
 
   stopWatching: async (filePath: string): Promise<void> => {
-    await useWatcherStore.getState().stopWatching(filePath);
+    await useWatcherStore.getState().stopWatching(normalizePath(filePath));
   },
 
   stopAllWatching: async (): Promise<void> => {
@@ -294,7 +299,7 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   applyWatchError: (event: FileWatchErrorEvent): void => {
     useWatcherStore.getState().applyWatchError(event);
     set({
-      errorMessage: `${event.filePath}: ${event.message}`,
+      errorMessage: `${normalizePath(event.filePath)}: ${event.message}`,
     });
   },
 
@@ -461,17 +466,19 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   },
 
   closeTab: (filePath: string): void => {
-    useWorkspaceStore.getState().closeTab(filePath, get().selectedFilePath, (path) => {
-      set({ selectedFilePath: path });
+    const normalizedFilePath = normalizePath(filePath);
+    useWorkspaceStore.getState().closeTab(normalizedFilePath, get().selectedFilePath, (path) => {
+      set({ selectedFilePath: path ? normalizePath(path) : null });
     });
   },
 
   removeFile: (filePath: string): void => {
-    void useWatcherStore.getState().stopWatching(filePath);
-    useViewerStore.getState().removeFileState(filePath);
-    useWorkspaceStore.getState().removeFile(filePath, get().selectedFilePath, (path) => {
+    const normalizedFilePath = normalizePath(filePath);
+    void useWatcherStore.getState().stopWatching(normalizedFilePath);
+    useViewerStore.getState().removeFileState(normalizedFilePath);
+    useWorkspaceStore.getState().removeFile(normalizedFilePath, get().selectedFilePath, (path) => {
       if (path) {
-        void get().selectFile(path);
+        void get().selectFile(normalizePath(path));
       } else {
         useViewerStore.setState({ selectedFilePath: null });
       }
@@ -479,15 +486,16 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   },
 
   removeDirectory: (dirPath: string): void => {
-    const directory = useWorkspaceStore.getState().directories.find((d) => d.root.path === dirPath);
+    const normalizedDirPath = normalizePath(dirPath);
+    const directory = useWorkspaceStore.getState().directories.find((d) => normalizePath(d.root.path) === normalizedDirPath);
     if (directory) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const getAllFilePaths = (node: any): string[] => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const paths = node.files.map((f: any) => f.path);
+        const paths = node.files.map((f: any) => normalizePath(f.path));
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const childPaths = node.children.flatMap((child: any) =>
-          child.kind === 'directory' ? getAllFilePaths(child) : [child.path],
+          child.kind === 'directory' ? getAllFilePaths(child) : [normalizePath(child.path)],
         );
         return [...paths, ...childPaths];
       };
@@ -498,9 +506,9 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
       }
     }
 
-    useWorkspaceStore.getState().removeDirectory(dirPath, get().selectedFilePath, (path) => {
+    useWorkspaceStore.getState().removeDirectory(normalizedDirPath, get().selectedFilePath, (path) => {
       if (path) {
-        void get().selectFile(path);
+        void get().selectFile(normalizePath(path));
       } else {
         useViewerStore.setState({ selectedFilePath: null });
       }
@@ -508,11 +516,11 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
   },
 
   pinTab: (filePath: string): void => {
-    useWorkspaceStore.getState().pinTab(filePath);
+    useWorkspaceStore.getState().pinTab(normalizePath(filePath));
   },
 
   setTabScrollPosition: (filePath: string, scrollTop: number): void => {
-    useWorkspaceStore.getState().setTabScrollPosition(filePath, scrollTop);
+    useWorkspaceStore.getState().setTabScrollPosition(normalizePath(filePath), scrollTop);
   },
 
   restoreWorkspace: (): void => {
@@ -529,15 +537,23 @@ export const useFileMonitorStore = create<FileMonitorState>((set, get) => ({
         searchHistory: persisted.searchHistory ?? [],
         searchQuery: persisted.searchQuery ?? '',
       });
+
+      const normalizedSelectedFilePath = persisted.selectedFilePath ? normalizePath(persisted.selectedFilePath) : null;
+
+      // Set viewerStore state FIRST to avoid subscription race where selectedFilePath gets overwritten with null
+      useViewerStore.setState({ selectedFilePath: normalizedSelectedFilePath });
+
       set({
-        selectedFilePath: persisted.selectedFilePath,
+        selectedFilePath: normalizedSelectedFilePath,
         isSidebarVisible: persisted.isSidebarVisible ?? true,
         isExplorerVisible: persisted.isExplorerVisible ?? true,
         isLogViewerExpanded: persisted.isLogViewerExpanded ?? false,
       });
+
+      // Pass selectFile instead of loadFile to restoreWorkspaceState
       useWorkspaceStore.getState().restoreWorkspaceState(
         persisted,
-        async (path) => get().loadFile(path),
+        async (path) => get().selectFile(path),
         async (path) => get().startWatching(path),
       );
     } catch {
@@ -690,10 +706,16 @@ let lastPersistedWorkspaceSignature = '';
 
 const writePersistedWorkspace = (state: FileMonitorState): void => {
   const workspaceState = {
-    selectedFilePath: state.selectedFilePath,
-    openTabs: state.openTabs,
-    watchedFilePaths: Object.keys(state.watchingFiles),
-    recentSources: state.recentSources,
+    selectedFilePath: state.selectedFilePath ? normalizePath(state.selectedFilePath) : null,
+    openTabs: state.openTabs.map((tab) => ({
+      ...tab,
+      filePath: normalizePath(tab.filePath),
+    })),
+    watchedFilePaths: Object.keys(state.watchingFiles).map(normalizePath),
+    recentSources: state.recentSources.map((src) => ({
+      ...src,
+      path: normalizePath(src.path),
+    })),
     searchHistory: state.searchHistory,
     themeMode: state.themeMode,
     isSidebarVisible: state.isSidebarVisible,
