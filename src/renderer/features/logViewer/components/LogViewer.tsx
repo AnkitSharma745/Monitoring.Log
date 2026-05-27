@@ -15,6 +15,8 @@ import { VirtualizedLogViewer } from './VirtualizedLogViewer';
 
 export const LogViewer = (): JSX.Element => {
   const isAdvancedSettingsOpen = useSettingsStore((state) => state.isAdvancedSettingsOpen);
+  const density = useSettingsStore((state) => state.density);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
   const selectedFilePath = useFileMonitorStore((state) => state.selectedFilePath);
   const filesByPath = useFileMonitorStore((state) => state.filesByPath);
   const watchingFiles = useFileMonitorStore((state) => state.watchingFiles);
@@ -185,40 +187,57 @@ export const LogViewer = (): JSX.Element => {
       <OpenLogTabs />
 
       {/* File Header Telemetry */}
-      <header className="shrink-0 overflow-hidden border-b border-line bg-panel px-2.5 py-1.5">
+      <header
+        className={[
+          'shrink-0 overflow-hidden border-b border-line bg-panel px-2.5',
+          density === 'ultraCompact' ? 'py-1' : 'py-1.5',
+        ].join(' ')}
+      >
         <div className="flex min-w-0 items-center justify-between gap-2 overflow-hidden">
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
               <h1 className="min-w-0 truncate font-mono text-sm font-semibold text-readable">
                 {selectedFile.name}
               </h1>
-              <Badge className="font-mono" maxWidthClassName="max-w-20">
-                {formatBytes(selectedFile.sizeBytes)}
-              </Badge>
-              <Badge className="font-mono" maxWidthClassName="max-w-24">
-                Lines {lineCount}
-              </Badge>
+              {featureVisibility.metadata && (
+                <>
+                  <Badge className="font-mono" maxWidthClassName="max-w-20">
+                    {formatBytes(selectedFile.sizeBytes)}
+                  </Badge>
+                  <Badge className="font-mono" maxWidthClassName="max-w-24">
+                    Lines {lineCount}
+                  </Badge>
+                </>
+              )}
             </div>
           </div>
-          <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-hidden font-mono text-xs text-muted">
-            {isWatching && <Badge tone="success">Live</Badge>}
-            {truncatedHead && <Badge tone="warning">Tail</Badge>}
-            {trimmedInRenderer && <Badge tone="warning">Trimmed</Badge>}
-            <Badge tone={stats.error > 0 ? 'danger' : 'neutral'} maxWidthClassName="max-w-20">
-              {stats.error} error
-            </Badge>
-            <Badge tone={stats.warn > 0 ? 'warning' : 'neutral'} maxWidthClassName="max-w-20">
-              {stats.warn} warn
-            </Badge>
-            {matchCount > 0 && (
-              <Badge tone="info" maxWidthClassName="max-w-20">
-                {matchCount} match
+          {featureVisibility.metadata && (
+            <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-hidden font-mono text-xs text-muted">
+              {isWatching && <Badge tone="success">Live</Badge>}
+              {featureVisibility.advancedBadges && truncatedHead && (
+                <Badge tone="warning">Tail</Badge>
+              )}
+              {featureVisibility.advancedBadges && trimmedInRenderer && (
+                <Badge tone="warning">Trimmed</Badge>
+              )}
+              <Badge tone={stats.error > 0 ? 'danger' : 'neutral'} maxWidthClassName="max-w-20">
+                {stats.error} error
               </Badge>
-            )}
-            <Badge className="hidden md:inline-flex" maxWidthClassName="max-w-48">
-              Modified {formatDateTime(selectedFile.modifiedAt)}
-            </Badge>
-          </div>
+              <Badge tone={stats.warn > 0 ? 'warning' : 'neutral'} maxWidthClassName="max-w-20">
+                {stats.warn} warn
+              </Badge>
+              {matchCount > 0 && (
+                <Badge tone="info" maxWidthClassName="max-w-20">
+                  {matchCount} match
+                </Badge>
+              )}
+              {featureVisibility.advancedBadges && (
+                <Badge className="hidden md:inline-flex" maxWidthClassName="max-w-48">
+                  Modified {formatDateTime(selectedFile.modifiedAt)}
+                </Badge>
+              )}
+            </div>
+          )}
         </div>
       </header>
 

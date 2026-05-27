@@ -1,6 +1,7 @@
 import {
   ChevronLeft,
   Database,
+  Eye,
   Keyboard,
   LayoutPanelLeft,
   Moon,
@@ -18,9 +19,15 @@ import { useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
 import { Button } from '@renderer/components/ui/Button';
 import { SHORTCUTS } from '@renderer/features/shortcuts/shortcutDefinitions';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
-import { useSettingsStore } from '@renderer/stores/settingsStore';
+import { useSettingsStore, type DensityMode } from '@renderer/stores/settingsStore';
 
-type AdvancedSettingsSection = 'general' | 'viewer' | 'filters' | 'workspace' | 'shortcuts';
+type AdvancedSettingsSection =
+  | 'general'
+  | 'viewer'
+  | 'visibility'
+  | 'filters'
+  | 'workspace'
+  | 'shortcuts';
 type ThemeMode = 'light' | 'dark';
 
 interface SettingRowCompactProps {
@@ -62,6 +69,8 @@ export const SettingsPanel = (): JSX.Element | null => {
   const openAdvancedSettings = useSettingsStore((state) => state.openAdvancedSettings);
   const themeMode = useSettingsStore((state) => state.theme);
   const setThemeMode = useSettingsStore((state) => state.setTheme);
+  const density = useSettingsStore((state) => state.density);
+  const setDensity = useSettingsStore((state) => state.setDensity);
 
   const isSidebarVisible = useFileMonitorStore((state) => state.isSidebarVisible);
   const isExplorerVisible = useFileMonitorStore((state) => state.isExplorerVisible);
@@ -135,10 +144,24 @@ export const SettingsPanel = (): JSX.Element | null => {
 
           <div className="h-[1px] bg-line/60" />
 
+          <div>
+            <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider mb-1.5">
+              Density
+            </span>
+            <DensitySelector density={density} onSelect={setDensity} />
+          </div>
+
+          <div className="h-[1px] bg-line/60" />
+
           <div className="flex flex-col gap-2">
             <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider">
               Feature Visibility
             </span>
+            <SettingRowCompact
+              label="Activity Rail"
+              active={featureVisibility.activityRail}
+              onToggle={() => setFeatureVisibility('activityRail', !featureVisibility.activityRail)}
+            />
             <SettingRowCompact
               label="Timeline"
               active={featureVisibility.timeline}
@@ -153,6 +176,13 @@ export const SettingsPanel = (): JSX.Element | null => {
               label="Incidents"
               active={featureVisibility.incidents}
               onToggle={() => setFeatureVisibility('incidents', !featureVisibility.incidents)}
+            />
+            <SettingRowCompact
+              label="Advanced Filters"
+              active={featureVisibility.advancedFilters}
+              onToggle={() =>
+                setFeatureVisibility('advancedFilters', !featureVisibility.advancedFilters)
+              }
             />
           </div>
 
@@ -252,6 +282,10 @@ export const AdvancedSettingsPanel = (): JSX.Element => {
   const searchHistory = useFileMonitorStore((state) => state.searchHistory);
 
   const closeAdvancedSettings = useSettingsStore((state) => state.closeAdvancedSettings);
+  const density = useSettingsStore((state) => state.density);
+  const setDensity = useSettingsStore((state) => state.setDensity);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
+  const setFeatureVisibility = useSettingsStore((state) => state.setFeatureVisibility);
   const toggleSidebarVisibility = useFileMonitorStore((state) => state.toggleSidebarVisibility);
   const toggleExplorerVisibility = useFileMonitorStore((state) => state.toggleExplorerVisibility);
   const toggleLogViewerExpanded = useFileMonitorStore((state) => state.toggleLogViewerExpanded);
@@ -394,12 +428,120 @@ export const AdvancedSettingsPanel = (): JSX.Element => {
                   active={preferences.compactMode}
                   onToggle={toggleCompactMode}
                 />
+                <div className="rounded-md border border-line bg-panel px-3 py-2">
+                  <div className="mb-2 text-xs font-semibold text-readable">Workspace density</div>
+                  <DensitySelector density={density} onSelect={setDensity} />
+                </div>
                 <SettingRow
                   title="Collapse consecutive duplicate rows"
                   description="Automatically identify and group repetitive warning bursts"
                   active={preferences.collapseRepeatedLogs}
                   onToggle={toggleCollapseRepeatedLogs}
                 />
+              </div>
+            </SettingsWorkspaceSection>
+          )}
+
+          {activeSection === 'visibility' && (
+            <SettingsWorkspaceSection
+              title="Feature Visibility"
+              description="Personalize investigation density without changing core workflows."
+            >
+              <div className="grid gap-4">
+                <VisibilityGroup title="Core Viewer">
+                  <SettingRow
+                    title="Metadata badges"
+                    description="Show file size, line count, severity, and modified-time indicators"
+                    active={featureVisibility.metadata}
+                    onToggle={() => setFeatureVisibility('metadata', !featureVisibility.metadata)}
+                  />
+                  <SettingRow
+                    title="Timestamps"
+                    description="Show timestamp/source columns in log rows"
+                    active={featureVisibility.timestamps}
+                    onToggle={() =>
+                      setFeatureVisibility('timestamps', !featureVisibility.timestamps)
+                    }
+                  />
+                  <SettingRow
+                    title="Advanced filter controls"
+                    description="Show include/exclude filters and secondary filter toolbar actions"
+                    active={featureVisibility.advancedFilters}
+                    onToggle={() =>
+                      setFeatureVisibility('advancedFilters', !featureVisibility.advancedFilters)
+                    }
+                  />
+                </VisibilityGroup>
+
+                <VisibilityGroup title="Investigation">
+                  <SettingRow
+                    title="Bookmarks"
+                    description="Show evidence bookmark affordances in log rows"
+                    active={featureVisibility.bookmarks}
+                    onToggle={() => setFeatureVisibility('bookmarks', !featureVisibility.bookmarks)}
+                  />
+                  <SettingRow
+                    title="Incidents"
+                    description="Show incident-oriented navigation surfaces"
+                    active={featureVisibility.incidents}
+                    onToggle={() => setFeatureVisibility('incidents', !featureVisibility.incidents)}
+                  />
+                  <SettingRow
+                    title="Timeline"
+                    description="Show timeline panels and activity-bar entry"
+                    active={featureVisibility.timeline}
+                    onToggle={() => setFeatureVisibility('timeline', !featureVisibility.timeline)}
+                  />
+                  <SettingRow
+                    title="Knowledge base"
+                    description="Show knowledge and playbook investigation surfaces"
+                    active={featureVisibility.knowledge}
+                    onToggle={() => setFeatureVisibility('knowledge', !featureVisibility.knowledge)}
+                  />
+                </VisibilityGroup>
+
+                <VisibilityGroup title="Advanced">
+                  <SettingRow
+                    title="Activity rail"
+                    description="Show the full side activity rail; core Explorer and Search remain available"
+                    active={featureVisibility.activityRail}
+                    onToggle={() =>
+                      setFeatureVisibility('activityRail', !featureVisibility.activityRail)
+                    }
+                  />
+                  <SettingRow
+                    title="Bottom panel"
+                    description="Allow secondary panels below the viewer"
+                    active={featureVisibility.bottomPanel}
+                    onToggle={() =>
+                      setFeatureVisibility('bottomPanel', !featureVisibility.bottomPanel)
+                    }
+                  />
+                  <SettingRow
+                    title="Watchers"
+                    description="Show live watcher surfaces and activity entry"
+                    active={featureVisibility.watchers}
+                    onToggle={() => setFeatureVisibility('watchers', !featureVisibility.watchers)}
+                  />
+                  <SettingRow
+                    title="Diagnostics and telemetry"
+                    description="Show diagnostics, performance, and operational telemetry panels"
+                    active={featureVisibility.diagnostics && featureVisibility.telemetry}
+                    onToggle={() => {
+                      const next = !(featureVisibility.diagnostics && featureVisibility.telemetry);
+                      setFeatureVisibility('diagnostics', next);
+                      setFeatureVisibility('telemetry', next);
+                    }}
+                  />
+                  <SettingRow
+                    title="AI assistance"
+                    description="Show AI evidence assistance surfaces when available"
+                    active={featureVisibility.aiEvidence}
+                    onToggle={() =>
+                      setFeatureVisibility('aiEvidence', !featureVisibility.aiEvidence)
+                    }
+                  />
+                </VisibilityGroup>
               </div>
             </SettingsWorkspaceSection>
           )}
@@ -596,6 +738,7 @@ const advancedSettingsSections: Array<{
 }> = [
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'viewer', label: 'Viewer Defaults', icon: SlidersHorizontal },
+  { id: 'visibility', label: 'Visibility', icon: Eye },
   { id: 'filters', label: 'Default Filters', icon: Search },
   { id: 'workspace', label: 'Workspace Config', icon: LayoutPanelLeft },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
@@ -620,6 +763,53 @@ const SettingsWorkspaceSection = ({
       </div>
       <div className="space-y-3">{children}</div>
     </section>
+  );
+};
+
+interface DensitySelectorProps {
+  density: DensityMode;
+  onSelect: (density: DensityMode) => void;
+}
+
+const densityOptions: Array<{ value: DensityMode; label: string }> = [
+  { value: 'ultraCompact', label: 'Ultra' },
+  { value: 'compact', label: 'Compact' },
+  { value: 'comfortable', label: 'Normal' },
+];
+
+const DensitySelector = ({ density, onSelect }: DensitySelectorProps): JSX.Element => {
+  return (
+    <div className="grid grid-cols-3 overflow-hidden rounded border border-line bg-ink-950">
+      {densityOptions.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={[
+            'h-7 min-w-0 truncate border-r border-line px-1.5 text-[11px] font-semibold transition last:border-r-0',
+            density === option.value
+              ? 'bg-accent-soft text-accent'
+              : 'text-muted hover:bg-ink-900 hover:text-readable',
+          ].join(' ')}
+          onClick={() => onSelect(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+interface VisibilityGroupProps {
+  title: string;
+  children: ReactNode;
+}
+
+const VisibilityGroup = ({ title, children }: VisibilityGroupProps): JSX.Element => {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-[10px] font-bold uppercase tracking-wider text-subtle">{title}</h4>
+      <div className="grid gap-2">{children}</div>
+    </div>
   );
 };
 

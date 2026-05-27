@@ -54,8 +54,10 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
 
     const activeSearchMatchIndex = useSearchStore((state) => state.activeSearchMatchIndex);
     const preferences = useSettingsStore((state) => state.preferences);
+    const density = useSettingsStore((state) => state.density);
     const {
       compactMode = false,
+      featureVisibility,
       severityFilters = {},
       filterToMatches = false,
       autoScroll = true,
@@ -65,7 +67,7 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
       excludeFilter = '',
     } = preferences || {};
 
-    const rowHeight = compactMode ? 20 : 28;
+    const rowHeight = density === 'ultraCompact' ? 18 : compactMode ? 20 : 28;
     const OVERSCAN = 10;
 
     // Track height of the scrolling container dynamically
@@ -219,6 +221,10 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
               lineWrap={lineWrap}
               isActiveMatch={isActiveMatch}
               compactMode={compactMode}
+              density={density}
+              showBookmarks={featureVisibility?.bookmarks ?? true}
+              showMetadata={featureVisibility?.metadata ?? true}
+              showTimestamps={featureVisibility?.timestamps ?? true}
               isDuplicateTimestamp={isDuplicateTimestamp}
               sourceId={filePath}
               isSelected={isSelected}

@@ -62,11 +62,19 @@ export interface ViewerPreferences {
   enableHeuristicHints: boolean;
   showIngestionTrace: boolean;
   featureVisibility: {
+    activityRail: boolean;
+    bottomPanel: boolean;
+    watchers: boolean;
+    knowledge: boolean;
     aiEvidence: boolean;
     incidents: boolean;
+    bookmarks: boolean;
     telemetry: boolean;
     diagnostics: boolean;
     timeline: boolean;
+    metadata: boolean;
+    timestamps: boolean;
+    advancedFilters: boolean;
     advancedBadges: boolean;
   };
 }
@@ -199,11 +207,19 @@ const createDefaultPreferences = (): ViewerPreferences => {
     enableHeuristicHints: true,
     showIngestionTrace: true,
     featureVisibility: {
+      activityRail: true,
+      bottomPanel: true,
+      watchers: true,
+      knowledge: true,
       aiEvidence: true,
       incidents: true,
+      bookmarks: true,
       telemetry: true,
       diagnostics: true,
       timeline: true,
+      metadata: true,
+      timestamps: true,
+      advancedFilters: true,
       advancedBadges: true,
     },
   };

@@ -75,7 +75,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
 
             {/* Close Tab Button */}
             {!tab.pinned && (
-              <Tooltip label="Close tab" shortcut="Ctrl/Cmd+W">
+              <Tooltip label="Close tab" shortcut="Ctrl+W">
                 <button
                   type="button"
                   className="flex h-5 w-5 shrink-0 items-center justify-center text-subtle opacity-0 transition-opacity hover:text-danger group-hover:opacity-100 group-focus-within:opacity-100"

@@ -17,14 +17,14 @@ export interface ShortcutDefinition {
 }
 
 export const SHORTCUTS: ShortcutDefinition[] = [
-  { action: 'openFiles', label: 'Open files', keys: 'Ctrl/Cmd+O' },
-  { action: 'openDirectory', label: 'Open folder', keys: 'Ctrl/Cmd+Shift+O' },
-  { action: 'focusSearch', label: 'Focus search', keys: 'Ctrl/Cmd+F' },
-  { action: 'clearLogs', label: 'Clear active logs', keys: 'Ctrl/Cmd+L' },
-  { action: 'closeTab', label: 'Close active tab', keys: 'Ctrl/Cmd+W' },
-  { action: 'reloadActive', label: 'Reload active file', keys: 'Ctrl/Cmd+R' },
-  { action: 'toggleSidebar', label: 'Toggle sidebar', keys: 'Ctrl/Cmd+B' },
-  { action: 'toggleSettings', label: 'Open settings', keys: 'Ctrl/Cmd+,' },
+  { action: 'openFiles', label: 'Open files', keys: 'Ctrl+O' },
+  { action: 'openDirectory', label: 'Open folder', keys: 'Ctrl+Shift+O' },
+  { action: 'focusSearch', label: 'Focus search', keys: 'Ctrl+F' },
+  { action: 'clearLogs', label: 'Clear active logs', keys: 'Ctrl+L' },
+  { action: 'closeTab', label: 'Close active tab', keys: 'Ctrl+W' },
+  { action: 'reloadActive', label: 'Reload active file', keys: 'Ctrl+R' },
+  { action: 'toggleSidebar', label: 'Toggle sidebar', keys: 'Ctrl+B' },
+  { action: 'toggleSettings', label: 'Open settings', keys: 'Ctrl+,' },
   { action: 'nextSearchMatch', label: 'Next search match', keys: 'Enter' },
   { action: 'previousSearchMatch', label: 'Previous search match', keys: 'Shift+Enter' },
 ];

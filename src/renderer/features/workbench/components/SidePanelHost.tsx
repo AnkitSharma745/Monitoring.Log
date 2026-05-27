@@ -3,6 +3,10 @@ import { useCallback, useMemo, type JSX, type PointerEvent } from 'react';
 
 import { Button } from '@renderer/components/ui/Button';
 import { ViewRegistryService } from '@renderer/services/workbenchServices';
+import {
+  useSettingsStore,
+  type FeatureVisibilityPreferences,
+} from '@renderer/stores/settingsStore';
 import { useWorkbenchStore, type WorkbenchSidePanel } from '../workbenchStore';
 import { WorkbenchPlaceholder } from './WorkbenchPlaceholder';
 
@@ -21,6 +25,10 @@ export const SidePanelHost = (): JSX.Element | null => {
   const sidePanelWidth = useWorkbenchStore((state) => state.sidePanelWidth);
   const setSidePanelWidth = useWorkbenchStore((state) => state.setSidePanelWidth);
   const toggleSidePanel = useWorkbenchStore((state) => state.toggleSidePanel);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
+  const activeVisibleSidePanel = isSidePanelFeatureVisible(activeSidePanel, featureVisibility)
+    ? activeSidePanel
+    : 'explorer';
 
   const handleResizePointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>): void => {
@@ -47,22 +55,24 @@ export const SidePanelHost = (): JSX.Element | null => {
   );
 
   const content = useMemo(() => {
-    const contribution = ViewRegistryService.getSidePanel(activeSidePanel);
+    const contribution = ViewRegistryService.getSidePanel(activeVisibleSidePanel);
     if (contribution) {
       const Component = contribution.component;
       return <Component />;
     }
-    return <WorkbenchPlaceholder title={panelTitles[activeSidePanel] || activeSidePanel} />;
-  }, [activeSidePanel]);
+    return (
+      <WorkbenchPlaceholder title={panelTitles[activeVisibleSidePanel] || activeVisibleSidePanel} />
+    );
+  }, [activeVisibleSidePanel]);
 
   if (!isSidePanelVisible) {
     return null;
   }
 
   const activeTitle =
-    ViewRegistryService.getSidePanel(activeSidePanel)?.title ??
-    panelTitles[activeSidePanel] ??
-    activeSidePanel;
+    ViewRegistryService.getSidePanel(activeVisibleSidePanel)?.title ??
+    panelTitles[activeVisibleSidePanel] ??
+    activeVisibleSidePanel;
 
   return (
     <aside
@@ -86,4 +96,15 @@ export const SidePanelHost = (): JSX.Element | null => {
       </div>
     </aside>
   );
+};
+
+const isSidePanelFeatureVisible = (
+  panel: WorkbenchSidePanel,
+  visibility: FeatureVisibilityPreferences,
+): boolean => {
+  if (panel === 'watchers') return visibility.watchers;
+  if (panel === 'timeline') return visibility.timeline;
+  if (panel === 'knowledge') return visibility.knowledge;
+  if (panel === 'investigations') return visibility.incidents;
+  return true;
 };

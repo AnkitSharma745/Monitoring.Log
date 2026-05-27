@@ -26,8 +26,8 @@ interface ActivityItem {
 }
 
 const activityItems: ActivityItem[] = [
-  { id: 'explorer', label: 'Explorer', shortcut: 'Ctrl/Cmd+B', icon: Files },
-  { id: 'search', label: 'Search', shortcut: 'Ctrl/Cmd+F', icon: Search },
+  { id: 'explorer', label: 'Explorer', shortcut: 'Ctrl+B', icon: Files },
+  { id: 'search', label: 'Search', shortcut: 'Ctrl+F', icon: Search },
   { id: 'watchers', label: 'Watchers', icon: RadioTower },
   { id: 'investigations', label: 'Investigations', icon: Bug },
   { id: 'timeline', label: 'Timeline', icon: Clock3 },
@@ -39,7 +39,7 @@ const activityItems: ActivityItem[] = [
 const settingsItem: ActivityItem = {
   id: 'settings',
   label: 'Settings',
-  shortcut: 'Ctrl/Cmd+,',
+  shortcut: 'Ctrl+,',
   icon: Settings,
 };
 
@@ -54,6 +54,11 @@ export const ActivityBar = (): JSX.Element => {
   const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
   const watcherCount = Object.keys(watchingFiles).length;
   const visibleActivityItems = activityItems.filter((item) => {
+    if (!featureVisibility.activityRail) {
+      return item.id === 'explorer' || item.id === 'search';
+    }
+    if (item.id === 'watchers') return featureVisibility.watchers;
+    if (item.id === 'knowledge') return featureVisibility.knowledge;
     if (item.id === 'timeline') return featureVisibility.timeline;
     if (item.id === 'aiEvidence') return featureVisibility.aiEvidence;
     if (item.id === 'incidents') return featureVisibility.incidents;

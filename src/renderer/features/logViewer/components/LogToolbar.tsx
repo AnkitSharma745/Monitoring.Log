@@ -49,6 +49,8 @@ export const LogToolbar = ({
   // Advanced filters from settingsStore
   const includeFilter = useSettingsStore((state) => state.preferences.includeFilter);
   const excludeFilter = useSettingsStore((state) => state.preferences.excludeFilter);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
+  const density = useSettingsStore((state) => state.density);
   const setIncludeFilter = useSettingsStore((state) => state.setIncludeFilter);
   const setExcludeFilter = useSettingsStore((state) => state.setExcludeFilter);
 
@@ -111,7 +113,12 @@ export const LogToolbar = ({
   }, []);
 
   return (
-    <div className="flex h-9 min-w-0 shrink-0 items-center justify-between gap-1.5 overflow-hidden border-b border-line bg-ink-900 px-2 font-mono">
+    <div
+      className={[
+        'flex min-w-0 shrink-0 items-center justify-between gap-1.5 overflow-hidden border-b border-line bg-ink-900 px-2 font-mono',
+        density === 'ultraCompact' ? 'h-8' : 'h-9',
+      ].join(' ')}
+    >
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
         {/* VS Code styled advanced search query bar */}
         <div className="relative flex min-w-32 flex-1 items-center sm:min-w-48 lg:max-w-sm">
@@ -178,7 +185,12 @@ export const LogToolbar = ({
         </div>
 
         {/* Include filter input */}
-        <div className="relative hidden w-28 shrink-0 items-center md:flex">
+        <div
+          className={[
+            'relative hidden w-28 shrink-0 items-center',
+            featureVisibility.advancedFilters ? 'md:flex' : '',
+          ].join(' ')}
+        >
           <input
             value={includeFilter}
             onChange={(e) => setIncludeFilter(e.target.value)}
@@ -198,7 +210,12 @@ export const LogToolbar = ({
         </div>
 
         {/* Exclude filter input */}
-        <div className="relative hidden w-28 shrink-0 items-center lg:flex">
+        <div
+          className={[
+            'relative hidden w-28 shrink-0 items-center',
+            featureVisibility.advancedFilters ? 'lg:flex' : '',
+          ].join(' ')}
+        >
           <input
             value={excludeFilter}
             onChange={(e) => setExcludeFilter(e.target.value)}
@@ -276,7 +293,10 @@ export const LogToolbar = ({
         <Button
           size="sm"
           variant={preferences.filterToMatches ? 'secondary' : 'ghost'}
-          className="hidden h-7 text-[10px] xl:inline-flex"
+          className={[
+            'hidden h-7 text-[10px]',
+            featureVisibility.advancedFilters ? 'xl:inline-flex' : '',
+          ].join(' ')}
           onClick={toggleFilterToMatches}
         >
           MatchesOnly
@@ -335,7 +355,10 @@ export const LogToolbar = ({
         <Button
           size="sm"
           variant="ghost"
-          className="hidden h-7 text-[10px] xl:inline-flex"
+          className={[
+            'hidden h-7 text-[10px]',
+            featureVisibility.advancedFilters ? 'xl:inline-flex' : '',
+          ].join(' ')}
           onClick={resetLogFilters}
         >
           <span className="truncate">Reset</span>

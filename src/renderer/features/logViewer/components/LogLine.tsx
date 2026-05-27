@@ -1,6 +1,7 @@
 import { Star } from 'lucide-react';
 import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { getHighlightedParts, type LogEntry, type LogSeverity } from '../logParsing';
+import type { DensityMode } from '@renderer/stores/settingsStore';
 import type { ReactNode } from 'react';
 import type { JSX } from 'react';
 
@@ -11,6 +12,10 @@ interface LogLineProps {
   lineWrap: boolean;
   isActiveMatch: boolean;
   compactMode?: boolean;
+  density?: DensityMode;
+  showBookmarks?: boolean;
+  showMetadata?: boolean;
+  showTimestamps?: boolean;
   isDuplicateTimestamp?: boolean;
   suffix?: ReactNode;
   sourceId?: string;
@@ -40,6 +45,10 @@ export const LogLine = ({
   lineWrap,
   isActiveMatch,
   compactMode = false,
+  density = compactMode ? 'compact' : 'comfortable',
+  showBookmarks = true,
+  showMetadata = true,
+  showTimestamps = true,
   isDuplicateTimestamp = false,
   suffix,
   sourceId,
@@ -60,16 +69,32 @@ export const LogLine = ({
     return found ? found.id : null;
   });
   const isBookmarked = activeBookmarkId !== null;
+  const densityClasses =
+    density === 'ultraCompact'
+      ? 'min-h-[18px] py-0 text-[10px] leading-[18px]'
+      : compactMode
+        ? 'min-h-5 py-0 text-[11px] leading-5'
+        : '';
+  const gridTemplateColumns = [
+    showBookmarks ? '18px' : '',
+    showLineNumbers ? '44px' : '',
+    showMetadata ? '42px' : '',
+    showTimestamps ? '104px' : '',
+    'minmax(0,1fr)',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   if (!entry) {
     return (
       <div
         className={[
           'grid min-h-6 border-l-2 border-transparent px-2 py-0.5 text-[12px] leading-6',
-          compactMode ? 'min-h-5 py-0 text-[11px] leading-5' : '',
+          densityClasses,
         ]
           .filter(Boolean)
           .join(' ')}
+        style={{ gridTemplateColumns }}
       />
     );
   }
@@ -106,10 +131,7 @@ export const LogLine = ({
       data-log-entry-id={entry.id}
       className={[
         'group grid min-h-6 cursor-pointer select-none border-l-2 border-transparent px-2 py-0.5 text-[12px] leading-6 transition-colors duration-150 hover:bg-ink-850/70',
-        compactMode ? 'min-h-5 py-0 text-[11px] leading-5' : '',
-        showLineNumbers
-          ? 'grid-cols-[18px_44px_42px_104px_minmax(0,1fr)]'
-          : 'grid-cols-[18px_42px_104px_minmax(0,1fr)]',
+        densityClasses,
         severity === 'error' ? 'border-l-danger/80' : '',
         severity === 'warn' ? 'border-l-warning/80' : '',
         severity === 'info' ? 'border-l-info/50' : '',
@@ -118,21 +140,24 @@ export const LogLine = ({
       ]
         .filter(Boolean)
         .join(' ')}
+      style={{ gridTemplateColumns }}
     >
       {/* 1. Bookmark Margin Star Column */}
-      <div className="flex items-center justify-center overflow-hidden">
-        <button
-          onClick={handleBookmarkToggle}
-          className={`transition-all duration-150 focus:outline-none ${
-            isBookmarked
-              ? 'text-yellow-400 opacity-100 scale-110'
-              : 'text-subtle opacity-0 group-hover:opacity-100 hover:text-yellow-300'
-          }`}
-          title={isBookmarked ? 'Remove Bookmark' : 'Bookmark Evidence Line'}
-        >
-          <Star size={11} fill={isBookmarked ? 'currentColor' : 'none'} />
-        </button>
-      </div>
+      {showBookmarks && (
+        <div className="flex items-center justify-center overflow-hidden">
+          <button
+            onClick={handleBookmarkToggle}
+            className={`transition-all duration-150 focus:outline-none ${
+              isBookmarked
+                ? 'text-yellow-400 opacity-100 scale-110'
+                : 'text-subtle opacity-0 group-hover:opacity-100 hover:text-yellow-300'
+            }`}
+            title={isBookmarked ? 'Remove Bookmark' : 'Bookmark Evidence Line'}
+          >
+            <Star size={11} fill={isBookmarked ? 'currentColor' : 'none'} />
+          </button>
+        </div>
+      )}
 
       {/* 2. Line Number Column */}
       {showLineNumbers && (
@@ -142,22 +167,27 @@ export const LogLine = ({
       )}
 
       {/* 3. Severity Badge Column */}
-      <span
-        className={[
-          'mt-0.5 inline-flex h-5 w-10 select-none items-center justify-center overflow-hidden rounded border font-mono text-[10px] font-bold',
-          severityClass,
-        ].join(' ')}
-      >
-        {severityLabel}
-      </span>
+      {showMetadata && (
+        <span
+          className={[
+            'mt-0.5 inline-flex h-5 w-10 select-none items-center justify-center overflow-hidden rounded border font-mono text-[10px] font-bold',
+            density === 'ultraCompact' ? 'h-[18px] text-[9px]' : '',
+            severityClass,
+          ].join(' ')}
+        >
+          {severityLabel}
+        </span>
+      )}
 
       {/* 4. Timestamp Column */}
-      <span
-        className="truncate pr-2 font-mono text-[11px] text-subtle"
-        title={entry.timestamp ?? entry.source ?? undefined}
-      >
-        {isDuplicateTimestamp ? '' : (entry.timestamp ?? entry.source ?? '')}
-      </span>
+      {showTimestamps && (
+        <span
+          className="truncate pr-2 font-mono text-[11px] text-subtle"
+          title={entry.timestamp ?? entry.source ?? undefined}
+        >
+          {isDuplicateTimestamp ? '' : (entry.timestamp ?? entry.source ?? '')}
+        </span>
+      )}
 
       {/* 5. Message Content Column */}
       <span

@@ -2,15 +2,23 @@ import { create } from 'zustand';
 
 import type { LogSeverity } from '@renderer/features/logViewer/logParsing';
 
-export type DensityMode = 'compact' | 'comfortable';
+export type DensityMode = 'ultraCompact' | 'compact' | 'comfortable';
 export type ThemePreference = 'light' | 'dark';
 
 export interface FeatureVisibilityPreferences {
+  activityRail: boolean;
+  bottomPanel: boolean;
+  watchers: boolean;
+  knowledge: boolean;
   aiEvidence: boolean;
   incidents: boolean;
+  bookmarks: boolean;
   telemetry: boolean;
   diagnostics: boolean;
   timeline: boolean;
+  metadata: boolean;
+  timestamps: boolean;
+  advancedFilters: boolean;
   advancedBadges: boolean;
 }
 
@@ -41,11 +49,19 @@ const createEnabledSeverityFilters = (): Record<LogSeverity, boolean> => {
 
 const createDefaultFeatureVisibility = (): FeatureVisibilityPreferences => {
   return {
+    activityRail: true,
+    bottomPanel: true,
+    watchers: true,
+    knowledge: true,
     aiEvidence: true,
     incidents: true,
+    bookmarks: true,
     telemetry: true,
     diagnostics: true,
     timeline: true,
+    metadata: true,
+    timestamps: true,
+    advancedFilters: true,
     advancedBadges: true,
   };
 };
@@ -122,16 +138,32 @@ const updateFeatureVisibility = (
 ): FeatureVisibilityPreferences => {
   const current = preferences.featureVisibility;
   switch (key) {
+    case 'activityRail':
+      return { ...current, activityRail: visible };
+    case 'bottomPanel':
+      return { ...current, bottomPanel: visible };
+    case 'watchers':
+      return { ...current, watchers: visible };
+    case 'knowledge':
+      return { ...current, knowledge: visible };
     case 'aiEvidence':
       return { ...current, aiEvidence: visible };
     case 'incidents':
       return { ...current, incidents: visible };
+    case 'bookmarks':
+      return { ...current, bookmarks: visible };
     case 'telemetry':
       return { ...current, telemetry: visible };
     case 'diagnostics':
       return { ...current, diagnostics: visible };
     case 'timeline':
       return { ...current, timeline: visible };
+    case 'metadata':
+      return { ...current, metadata: visible };
+    case 'timestamps':
+      return { ...current, timestamps: visible };
+    case 'advancedFilters':
+      return { ...current, advancedFilters: visible };
     case 'advancedBadges':
       return { ...current, advancedBadges: visible };
     default:
@@ -173,7 +205,13 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
   isAdvancedSettingsOpen: false,
 
   setDensity: (density): void => {
-    set({ density });
+    set((state) => ({
+      density,
+      preferences: {
+        ...state.preferences,
+        compactMode: density !== 'comfortable',
+      },
+    }));
   },
 
   setTheme: (theme): void => {
@@ -225,6 +263,7 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
 
   toggleCompactMode: (): void => {
     set((state) => ({
+      density: state.preferences.compactMode ? 'comfortable' : 'compact',
       preferences: { ...state.preferences, compactMode: !state.preferences.compactMode },
     }));
   },

@@ -3,8 +3,11 @@ import { useMemo, type JSX, type ReactNode } from 'react';
 
 import { formatBytes, formatShortTime } from '@renderer/features/files/fileFormatting';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
+import { useSettingsStore } from '@renderer/stores/settingsStore';
 
 export const WorkbenchStatusBar = (): JSX.Element => {
+  const density = useSettingsStore((state) => state.density);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
   const filesByPath = useFileMonitorStore((state) => state.filesByPath);
   const selectedFilePath = useFileMonitorStore((state) => state.selectedFilePath);
   const documentsByPath = useFileMonitorStore((state) => state.documentsByPath);
@@ -25,7 +28,12 @@ export const WorkbenchStatusBar = (): JSX.Element => {
   );
 
   return (
-    <footer className="col-[1/-1] flex h-6 min-w-0 items-center justify-between border-t border-line bg-panel text-[11px] text-muted select-none">
+    <footer
+      className={[
+        'col-[1/-1] flex min-w-0 items-center justify-between border-t border-line bg-panel text-[11px] text-muted select-none',
+        density === 'ultraCompact' ? 'h-5' : 'h-6',
+      ].join(' ')}
+    >
       <div className="flex min-w-0 items-center">
         <StatusSegment icon={<RadioTower size={12} />}>
           {Object.keys(watchingFiles).length} live
@@ -33,11 +41,13 @@ export const WorkbenchStatusBar = (): JSX.Element => {
         <StatusSegment>{openTabs.length} tabs</StatusSegment>
         {selectedFile && <StatusSegment>{selectedFile.name}</StatusSegment>}
         {selectedDocument && <StatusSegment>{selectedDocument.lineCount} lines</StatusSegment>}
-        <StatusSegment icon={<Database size={12} />}>{formatBytes(bufferedBytes)}</StatusSegment>
+        {featureVisibility.telemetry && (
+          <StatusSegment icon={<Database size={12} />}>{formatBytes(bufferedBytes)}</StatusSegment>
+        )}
       </div>
 
       <div className="flex min-w-0 items-center">
-        {lastUpdate && (
+        {featureVisibility.telemetry && lastUpdate && (
           <StatusSegment icon={<Zap size={12} />}>
             {lastUpdate.changeType} +{formatBytes(lastUpdate.bytesRead)}{' '}
             {formatShortTime(lastUpdate.changedAt)}
@@ -65,7 +75,7 @@ const StatusSegment = ({ children, icon, tone = 'default' }: StatusSegmentProps)
   return (
     <span
       className={[
-        'flex h-6 max-w-[34vw] items-center gap-1.5 border-r border-line px-2.5 transition-colors',
+        'flex h-full max-w-[34vw] items-center gap-1.5 border-r border-line px-2.5 transition-colors',
         tone === 'danger' ? 'bg-danger text-white' : 'hover:bg-ink-800 hover:text-readable',
       ].join(' ')}
     >

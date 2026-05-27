@@ -3,6 +3,10 @@ import { useCallback, useMemo, type JSX, type PointerEvent } from 'react';
 
 import { Button } from '@renderer/components/ui/Button';
 import { ViewRegistryService } from '@renderer/services/workbenchServices';
+import {
+  useSettingsStore,
+  type FeatureVisibilityPreferences,
+} from '@renderer/stores/settingsStore';
 import { useWorkbenchStore, type WorkbenchBottomPanel } from '../workbenchStore';
 import { WorkbenchPlaceholder } from './WorkbenchPlaceholder';
 
@@ -13,13 +17,21 @@ export const BottomPanelHost = (): JSX.Element | null => {
   const setActiveBottomPanel = useWorkbenchStore((state) => state.setActiveBottomPanel);
   const setBottomPanelHeight = useWorkbenchStore((state) => state.setBottomPanelHeight);
   const toggleBottomPanel = useWorkbenchStore((state) => state.toggleBottomPanel);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
 
   const bottomPanelItems = useMemo(() => {
-    return ViewRegistryService.getBottomPanels().map((panel) => ({
-      id: panel.id as WorkbenchBottomPanel,
-      label: panel.title,
-    }));
-  }, []);
+    return ViewRegistryService.getBottomPanels()
+      .filter((panel) =>
+        isBottomPanelFeatureVisible(panel.id as WorkbenchBottomPanel, featureVisibility),
+      )
+      .map((panel) => ({
+        id: panel.id as WorkbenchBottomPanel,
+        label: panel.title,
+      }));
+  }, [featureVisibility]);
+  const activeVisiblePanel = bottomPanelItems.some((item) => item.id === activeBottomPanel)
+    ? activeBottomPanel
+    : (bottomPanelItems[0]?.id ?? activeBottomPanel);
 
   const handleResizePointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>): void => {
@@ -46,15 +58,15 @@ export const BottomPanelHost = (): JSX.Element | null => {
   );
 
   const panelContent = useMemo(() => {
-    const contribution = ViewRegistryService.getBottomPanel(activeBottomPanel);
+    const contribution = ViewRegistryService.getBottomPanel(activeVisiblePanel);
     if (contribution) {
       const Component = contribution.component;
       return <Component />;
     }
-    return <WorkbenchPlaceholder title={activeBottomPanel} />;
-  }, [activeBottomPanel]);
+    return <WorkbenchPlaceholder title={activeVisiblePanel} />;
+  }, [activeVisiblePanel]);
 
-  if (!isBottomPanelVisible) {
+  if (!isBottomPanelVisible || !featureVisibility.bottomPanel || bottomPanelItems.length === 0) {
     return null;
   }
 
@@ -77,7 +89,7 @@ export const BottomPanelHost = (): JSX.Element | null => {
               type="button"
               className={[
                 'h-8 border-r border-line px-3 text-[11px] font-semibold uppercase transition shrink-0',
-                activeBottomPanel === item.id
+                activeVisiblePanel === item.id
                   ? 'bg-panel text-readable border-b border-b-accent'
                   : 'text-muted hover:bg-ink-800 hover:text-readable',
               ].join(' ')}
@@ -96,4 +108,16 @@ export const BottomPanelHost = (): JSX.Element | null => {
       <div className="flex-1 min-h-0 overflow-hidden relative bg-panel">{panelContent}</div>
     </section>
   );
+};
+
+const isBottomPanelFeatureVisible = (
+  panel: WorkbenchBottomPanel,
+  visibility: FeatureVisibilityPreferences,
+): boolean => {
+  if (panel === 'aiEvidence') return visibility.aiEvidence;
+  if (panel === 'timeline') return visibility.timeline;
+  if (panel === 'diagnostics') return visibility.diagnostics;
+  if (panel === 'performance') return visibility.telemetry;
+  if (panel === 'watchers') return visibility.watchers;
+  return true;
 };
