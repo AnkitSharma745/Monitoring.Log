@@ -1,6 +1,8 @@
 import type { Incident } from '@shared/contracts/investigations';
 import type {
+  ActiveMemoryWindow,
   StructuredLogEntry,
+  SourceIndexStats,
   VisibleLogWindow,
   CorrelationSequence,
 } from '@shared/contracts/logs';
@@ -14,6 +16,19 @@ export interface LogIndexSnapshot {
 
 export class InMemoryLogIndex {
   private readonly entriesBySource = new Map<string, StructuredLogEntry[]>();
+  private readonly sourceGenerations = new Map<string, number>();
+  private readonly indexedChunkIds = new Map<string, Set<string>>();
+  private readonly projectionCache = new Map<
+    string,
+    {
+      sourceId: string;
+      generation: number;
+      querySignature: string;
+      rowIndices: number[];
+      matchedRows: number[];
+      createdAt: number;
+    }
+  >();
 
   // High-performance indices
   private readonly severityIndices = new Map<string, Map<string, number[]>>(); // sourceId -> severity -> global indices
@@ -41,9 +56,12 @@ export class InMemoryLogIndex {
   public indexEntries(sourceId: string, entries: StructuredLogEntry[]): LogIndexSnapshot {
     const currentEntries = this.entriesBySource.get(sourceId) ?? [];
     const startIndex = currentEntries.length;
+    const nextGeneration = (this.sourceGenerations.get(sourceId) ?? 0) + 1;
 
     // Append raw entry store
     this.entriesBySource.set(sourceId, [...currentEntries, ...entries]);
+    this.sourceGenerations.set(sourceId, nextGeneration);
+    this.rememberIndexedChunks(sourceId, entries);
 
     // Ensure index maps exist for this source
     if (!this.severityIndices.has(sourceId)) this.severityIndices.set(sourceId, new Map());
@@ -124,6 +142,31 @@ export class InMemoryLogIndex {
     return this.entriesBySource.get(sourceId) ?? [];
   }
 
+  public clearSource(sourceId: string): void {
+    this.entriesBySource.delete(sourceId);
+    this.severityIndices.delete(sourceId);
+    this.sourceIndices.delete(sourceId);
+    this.timestampIndices.delete(sourceId);
+    this.correlationIndices.delete(sourceId);
+    this.paymentIndices.delete(sourceId);
+    this.sessionIndices.delete(sourceId);
+    this.hardwareIndices.delete(sourceId);
+    this.indexedChunkIds.delete(sourceId);
+    this.sourceGenerations.set(sourceId, (this.sourceGenerations.get(sourceId) ?? 0) + 1);
+
+    for (const [key, projection] of this.projectionCache.entries()) {
+      if (projection.sourceId === sourceId) {
+        this.projectionCache.delete(key);
+      }
+    }
+
+    for (const [key, cache] of this.searchCache.entries()) {
+      if (cache.sourceIds.includes(sourceId)) {
+        this.searchCache.delete(key);
+      }
+    }
+  }
+
   public getVisibleWindow(
     sourceId: string,
     startRow: number,
@@ -136,67 +179,235 @@ export class InMemoryLogIndex {
     isWholeWord?: boolean,
     includeFilter?: string,
     excludeFilter?: string,
+    visibleStartRow = startRow,
+    visibleEndRow = endRow,
   ): VisibleLogWindow {
     const entries = this.entriesBySource.get(sourceId) ?? [];
+    const generation = this.sourceGenerations.get(sourceId) ?? 0;
+    const projection = this.getProjection(
+      sourceId,
+      severityFilters,
+      searchQuery,
+      filterToMatches,
+      isRegex,
+      isCaseSensitive,
+      isWholeWord,
+      includeFilter,
+      excludeFilter,
+    );
+
+    const boundedStartRow = Math.max(
+      0,
+      Math.min(startRow, Math.max(0, projection.rowIndices.length)),
+    );
+    const boundedEndRow = Math.max(
+      boundedStartRow - 1,
+      Math.min(endRow, Math.max(0, projection.rowIndices.length - 1)),
+    );
+
+    const finalEntries = projection.rowIndices
+      .slice(boundedStartRow, boundedEndRow + 1)
+      .map((entryIndex) => {
+        const entry = entries[entryIndex];
+        if (!entry) {
+          return null;
+        }
+        return {
+          ...entry,
+          matchesSearch: projection.matchedRowSet.has(entryIndex),
+        };
+      })
+      .filter((entry): entry is StructuredLogEntry & { matchesSearch: boolean } => entry !== null);
+
+    const activeMemoryWindow: ActiveMemoryWindow = {
+      sourceId,
+      startRow: boundedStartRow,
+      endRow: boundedEndRow,
+      visibleStartRow,
+      visibleEndRow,
+      beforeRows: Math.max(0, visibleStartRow - boundedStartRow),
+      afterRows: Math.max(0, boundedEndRow - visibleEndRow),
+      loadedRows: finalEntries.length,
+      totalRows: projection.rowIndices.length,
+      querySignature: projection.querySignature,
+      indexGeneration: generation,
+    };
+
+    const severityStats = this.getSeverityStats(sourceId);
+
+    return {
+      sourceId,
+      startRow: boundedStartRow,
+      endRow: boundedEndRow,
+      visibleStartRow,
+      visibleEndRow,
+      totalRows: projection.rowIndices.length,
+      entries: finalEntries,
+      matchedCount: searchQuery ? projection.matchedRows.length : 0,
+      matchedIndices: projection.matchedRows,
+      querySignature: projection.querySignature,
+      indexGeneration: generation,
+      cacheHit: projection.cacheHit,
+      activeMemoryWindow,
+      severityStats,
+    };
+  }
+
+  public getSourceIndexStats(sourceId: string): SourceIndexStats {
+    const entries = this.entriesBySource.get(sourceId) ?? [];
+    const chunkIds = this.indexedChunkIds.get(sourceId);
+
+    return {
+      sourceId,
+      entryCount: entries.length,
+      chunkCount: chunkIds?.size ?? 0,
+      indexedBytes: entries.reduce(
+        (sum, entry) => sum + Math.max(0, entry.byteEnd - entry.byteStart),
+        0,
+      ),
+      generation: this.sourceGenerations.get(sourceId) ?? 0,
+      indexedAt: new Date().toISOString(),
+    };
+  }
+
+  private rememberIndexedChunks(sourceId: string, entries: StructuredLogEntry[]): void {
+    if (!this.indexedChunkIds.has(sourceId)) {
+      this.indexedChunkIds.set(sourceId, new Set());
+    }
+
+    const chunkIds = this.indexedChunkIds.get(sourceId);
+    for (const entry of entries) {
+      if (entry.chunkId) {
+        chunkIds?.add(entry.chunkId);
+      }
+    }
+  }
+
+  private getProjection(
+    sourceId: string,
+    severityFilters?: Record<string, boolean>,
+    searchQuery?: string,
+    filterToMatches?: boolean,
+    isRegex?: boolean,
+    isCaseSensitive?: boolean,
+    isWholeWord?: boolean,
+    includeFilter?: string,
+    excludeFilter?: string,
+  ): {
+    rowIndices: number[];
+    matchedRows: number[];
+    matchedRowSet: Set<number>;
+    querySignature: string;
+    cacheHit: boolean;
+  } {
+    const entries = this.entriesBySource.get(sourceId) ?? [];
+    const generation = this.sourceGenerations.get(sourceId) ?? 0;
+    const querySignature = createProjectionSignature({
+      severityFilters,
+      searchQuery,
+      filterToMatches,
+      isRegex,
+      isCaseSensitive,
+      isWholeWord,
+      includeFilter,
+      excludeFilter,
+    });
+    const cacheKey = `${sourceId}:${generation}:${querySignature}`;
+    const cached = this.projectionCache.get(cacheKey);
+
+    if (cached) {
+      return {
+        rowIndices: cached.rowIndices,
+        matchedRows: cached.matchedRows,
+        matchedRowSet: new Set(
+          cached.matchedRows
+            .map((row) => cached.rowIndices[row])
+            .filter((idx) => idx !== undefined),
+        ),
+        querySignature,
+        cacheHit: true,
+      };
+    }
+
     const matcher = searchQuery
       ? buildMatcher(searchQuery, isRegex, isCaseSensitive, isWholeWord)
       : null;
+    const rowIndices: number[] = [];
+    const matchedRows: number[] = [];
+    const matchedEntryIndices = new Set<number>();
 
-    const filteredEntries = entries.filter((entry) => {
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+      const entry = entries[entryIndex];
+      if (!entry) continue;
+
       if (severityFilters && !severityFilters[entry.severity]) {
-        return false;
+        continue;
       }
       if (includeFilter && !checkIncludeFilter(entry.raw, includeFilter)) {
-        return false;
+        continue;
       }
       if (excludeFilter && !checkExcludeFilter(entry.raw, excludeFilter)) {
-        return false;
+        continue;
       }
-      if (matcher && filterToMatches) {
-        if (!matcher(entry.raw)) {
-          return false;
-        }
-      }
-      return true;
-    });
 
-    const slice = filteredEntries.slice(startRow, endRow + 1);
-    const matchedIndices: number[] = [];
-    if (matcher) {
-      filteredEntries.forEach((entry, idx) => {
-        if (matcher(entry.raw)) {
-          matchedIndices.push(idx);
-        }
-      });
+      const matchesSearch = matcher ? matcher(entry.raw) : false;
+      if (matcher && matchesSearch) {
+        matchedEntryIndices.add(entryIndex);
+      }
+      if (matcher && filterToMatches && !matchesSearch) {
+        continue;
+      }
+
+      const projectedRow = rowIndices.length;
+      rowIndices.push(entryIndex);
+      if (matcher && matchesSearch) {
+        matchedRows.push(projectedRow);
+      }
     }
 
-    const finalEntries = slice.map((entry) => {
-      const matchesSearch = matcher ? matcher(entry.raw) : false;
-      return {
-        ...entry,
-        matchesSearch,
-      };
+    this.projectionCache.set(cacheKey, {
+      sourceId,
+      generation,
+      querySignature,
+      rowIndices,
+      matchedRows,
+      createdAt: Date.now(),
     });
+    this.trimProjectionCache();
 
+    return {
+      rowIndices,
+      matchedRows,
+      matchedRowSet: matchedEntryIndices,
+      querySignature,
+      cacheHit: false,
+    };
+  }
+
+  private trimProjectionCache(): void {
+    const MAX_PROJECTIONS = 24;
+    if (this.projectionCache.size <= MAX_PROJECTIONS) {
+      return;
+    }
+
+    const entries = [...this.projectionCache.entries()].sort(
+      (a, b) => a[1].createdAt - b[1].createdAt,
+    );
+    for (const [key] of entries.slice(0, Math.max(0, entries.length - MAX_PROJECTIONS))) {
+      this.projectionCache.delete(key);
+    }
+  }
+
+  private getSeverityStats(sourceId: string): VisibleLogWindow['severityStats'] {
+    const entries = this.entriesBySource.get(sourceId) ?? [];
     const sevMap = this.severityIndices.get(sourceId);
-    const severityStats = {
+    return {
       error: sevMap?.get('error')?.length ?? 0,
       warn: sevMap?.get('warn')?.length ?? 0,
       info: sevMap?.get('info')?.length ?? 0,
       debug: sevMap?.get('debug')?.length ?? 0,
       neutral: sevMap?.get('neutral')?.length ?? 0,
       total: entries.length,
-    };
-
-    return {
-      sourceId,
-      startRow,
-      endRow,
-      totalRows: filteredEntries.length,
-      entries: finalEntries,
-      matchedCount: matcher ? matchedIndices.length : 0,
-      matchedIndices,
-      severityStats,
     };
   }
 
@@ -572,6 +783,34 @@ const createSearchResult = (query: SearchQuery, matches: SearchMatch[]): SearchR
     matches,
     completedAt: new Date().toISOString(),
   };
+};
+
+const createProjectionSignature = (options: {
+  severityFilters?: Record<string, boolean>;
+  searchQuery?: string;
+  filterToMatches?: boolean;
+  isRegex?: boolean;
+  isCaseSensitive?: boolean;
+  isWholeWord?: boolean;
+  includeFilter?: string;
+  excludeFilter?: string;
+}): string => {
+  const severityFilters = options.severityFilters ?? {};
+  const severitySignature = Object.keys(severityFilters)
+    .sort()
+    .map((key) => `${key}:${severityFilters[key] ? '1' : '0'}`)
+    .join(',');
+
+  return [
+    `sev=${severitySignature}`,
+    `q=${options.searchQuery ?? ''}`,
+    `matchOnly=${options.filterToMatches ? '1' : '0'}`,
+    `regex=${options.isRegex ? '1' : '0'}`,
+    `case=${options.isCaseSensitive ? '1' : '0'}`,
+    `word=${options.isWholeWord ? '1' : '0'}`,
+    `include=${options.includeFilter ?? ''}`,
+    `exclude=${options.excludeFilter ?? ''}`,
+  ].join('|');
 };
 
 const buildMatcher = (

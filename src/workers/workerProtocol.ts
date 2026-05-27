@@ -20,6 +20,7 @@ import type {
 } from '@shared/contracts/knowledge';
 import type {
   LogChunk,
+  SourceIndexStats,
   StructuredLogEntry,
   VisibleLogWindow,
   CorrelationSequence,
@@ -41,6 +42,11 @@ export type EngineWorkerRequest =
       entries: StructuredLogEntry[];
     }
   | {
+      type: 'resetSource';
+      requestId: string;
+      sourceId: string;
+    }
+  | {
       type: 'search';
       requestId: string;
       query: SearchQuery;
@@ -51,6 +57,8 @@ export type EngineWorkerRequest =
       sourceId: string;
       startRow: number;
       endRow: number;
+      visibleStartRow?: number;
+      visibleEndRow?: number;
       severityFilters?: Record<string, boolean>;
       searchQuery?: string;
       filterToMatches?: boolean;
@@ -66,6 +74,11 @@ export type EngineWorkerRequest =
       sourceId: string;
       field: 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId';
       value: string;
+    }
+  | {
+      type: 'getSourceIndexStats';
+      requestId: string;
+      sourceId: string;
     }
   | {
       type: 'detectPatterns';
@@ -199,6 +212,11 @@ export type EngineWorkerResponse =
       indexedCount: number;
     }
   | {
+      type: 'resetSource:done';
+      requestId: string;
+      sourceId: string;
+    }
+  | {
       type: 'search:done';
       requestId: string;
       result: SearchResult;
@@ -212,6 +230,11 @@ export type EngineWorkerResponse =
       type: 'getCorrelationSequence:done';
       requestId: string;
       sequence: CorrelationSequence | null;
+    }
+  | {
+      type: 'getSourceIndexStats:done';
+      requestId: string;
+      stats: SourceIndexStats;
     }
   | {
       type: 'detectPatterns:done';

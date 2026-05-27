@@ -54,10 +54,16 @@ export interface VisibleLogWindow {
   sourceId: string;
   startRow: number;
   endRow: number;
+  visibleStartRow?: number;
+  visibleEndRow?: number;
   totalRows: number;
   entries: StructuredLogEntry[];
   matchedCount?: number;
   matchedIndices?: number[];
+  querySignature?: string;
+  indexGeneration?: number;
+  cacheHit?: boolean;
+  activeMemoryWindow?: ActiveMemoryWindow;
   severityStats?: {
     error: number;
     warn: number;
@@ -66,6 +72,29 @@ export interface VisibleLogWindow {
     neutral: number;
     total: number;
   };
+}
+
+export interface ActiveMemoryWindow {
+  sourceId: string;
+  startRow: number;
+  endRow: number;
+  visibleStartRow: number;
+  visibleEndRow: number;
+  beforeRows: number;
+  afterRows: number;
+  loadedRows: number;
+  totalRows: number;
+  querySignature: string;
+  indexGeneration: number;
+}
+
+export interface SourceIndexStats {
+  sourceId: string;
+  entryCount: number;
+  chunkCount: number;
+  indexedBytes: number;
+  generation: number;
+  indexedAt: string;
 }
 
 export interface CorrelationSequence {

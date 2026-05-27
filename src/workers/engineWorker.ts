@@ -39,6 +39,16 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       };
     }
 
+    if (request.type === 'resetSource') {
+      logIndex.clearSource(request.sourceId);
+
+      return {
+        type: 'resetSource:done',
+        requestId: request.requestId,
+        sourceId: request.sourceId,
+      };
+    }
+
     if (request.type === 'search') {
       return {
         type: 'search:done',
@@ -63,7 +73,17 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
           request.isWholeWord,
           request.includeFilter,
           request.excludeFilter,
+          request.visibleStartRow,
+          request.visibleEndRow,
         ),
+      };
+    }
+
+    if (request.type === 'getSourceIndexStats') {
+      return {
+        type: 'getSourceIndexStats:done',
+        requestId: request.requestId,
+        stats: logIndex.getSourceIndexStats(request.sourceId),
       };
     }
 

@@ -7,9 +7,15 @@ import { useSearchStore } from './searchStore';
 import { useSettingsStore } from './settingsStore';
 import { useWorkspaceStore } from './workspaceStore';
 import type { FileContentResult } from '@shared/contracts/files';
-import type { StructuredLogEntry } from '@shared/contracts/logs';
+import type {
+  ActiveMemoryWindow,
+  SourceIndexStats,
+  StructuredLogEntry,
+} from '@shared/contracts/logs';
 
 const INITIAL_READ_BYTES = 512 * 1024;
+const ACTIVE_MEMORY_WINDOW_BUFFER_ROWS = 600;
+const ACTIVE_MEMORY_WINDOW_REFETCH_GUARD_ROWS = 120;
 export const MAX_RENDERER_CONTENT_CHARS = 400_000;
 
 export interface LoadedFileDocument {
@@ -41,6 +47,10 @@ interface ViewerStoreState {
   statusMessage: string | null;
   pendingOperations: number;
   viewportEntriesByPath: Record<string, StructuredLogEntry[]>;
+  viewportWindowStartByPath: Record<string, number>;
+  activeMemoryWindowByPath: Record<string, ActiveMemoryWindow>;
+  viewportLoadingByPath: Record<string, boolean>;
+  sourceIndexStatsByPath: Record<string, SourceIndexStats>;
   viewportTotalRowsByPath: Record<string, number>;
   viewportMatchedCountByPath: Record<string, number>;
   viewportMatchedIndicesByPath: Record<string, number[]>;
@@ -82,6 +92,7 @@ interface ViewerStoreState {
   setError: (msg: string | null) => void;
   setStatus: (msg: string | null) => void;
   fetchViewportEntries: (sourceId: string, startRow: number, endRow: number) => Promise<void>;
+  refreshSourceIndexStats: (sourceId: string) => Promise<void>;
   targetLineRowIndexByPath: Record<string, number | null>;
   scrollToLineRowIndex: (idx: number | null, filePath?: string) => void;
   setSplitActive: (active: boolean) => void;
@@ -113,6 +124,17 @@ export const countLines = (content: string): number => {
 // Deduplication map to cache loading tasks for active paths in transit
 const activeLoadPromises: Record<string, Promise<FileContentResult | null> | undefined> = {};
 
+const invalidateActiveMemoryWindow = (
+  filePath: string,
+  setState: (partial: (state: ViewerStoreState) => Partial<ViewerStoreState>) => void,
+): void => {
+  setState((state) => {
+    const activeMemoryWindowByPath = { ...state.activeMemoryWindowByPath };
+    delete activeMemoryWindowByPath[filePath];
+    return { activeMemoryWindowByPath };
+  });
+};
+
 export const useViewerStore = create<ViewerStoreState>((set, get) => ({
   selectedFilePath: null,
   documentsByPath: {},
@@ -122,6 +144,10 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
   statusMessage: null,
   pendingOperations: 0,
   viewportEntriesByPath: {},
+  viewportWindowStartByPath: {},
+  activeMemoryWindowByPath: {},
+  viewportLoadingByPath: {},
+  sourceIndexStatsByPath: {},
   viewportTotalRowsByPath: {},
   viewportMatchedCountByPath: {},
   viewportMatchedIndicesByPath: {},
@@ -369,10 +395,12 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
               sourceId: normalizedPath,
               entries: parseRes.entries,
             });
+            void get().refreshSourceIndexStats(normalizedPath);
 
             // Refresh the view immediately for high responsiveness
             const activeWin = get().activeWindowByPath[normalizedPath];
             if (get().selectedFilePath === normalizedPath) {
+              invalidateActiveMemoryWindow(normalizedPath, set);
               const startRow = activeWin ? activeWin.startRow : 0;
               const endRow = activeWin ? activeWin.endRow : 100;
               void get().fetchViewportEntries(normalizedPath, startRow, endRow);
@@ -439,6 +467,7 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
                     entries: parseRes.entries,
                   });
                   currentLineNumber += parseRes.entries.length;
+                  void get().refreshSourceIndexStats(normalizedPath);
                 }
 
                 currentOffset = endOffset;
@@ -449,6 +478,7 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
 
                 // Progressively stream viewport row updates
                 if (get().selectedFilePath === normalizedPath) {
+                  invalidateActiveMemoryWindow(normalizedPath, set);
                   const activeWin = get().activeWindowByPath[normalizedPath];
                   const startRow = activeWin ? activeWin.startRow : 0;
                   const endRow = activeWin ? activeWin.endRow : 100;
@@ -534,6 +564,18 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
       const viewportEntriesByPath = { ...state.viewportEntriesByPath };
       delete viewportEntriesByPath[normalizedPath];
 
+      const viewportWindowStartByPath = { ...state.viewportWindowStartByPath };
+      delete viewportWindowStartByPath[normalizedPath];
+
+      const activeMemoryWindowByPath = { ...state.activeMemoryWindowByPath };
+      delete activeMemoryWindowByPath[normalizedPath];
+
+      const viewportLoadingByPath = { ...state.viewportLoadingByPath };
+      delete viewportLoadingByPath[normalizedPath];
+
+      const sourceIndexStatsByPath = { ...state.sourceIndexStatsByPath };
+      delete sourceIndexStatsByPath[normalizedPath];
+
       const viewportTotalRowsByPath = { ...state.viewportTotalRowsByPath };
       delete viewportTotalRowsByPath[normalizedPath];
 
@@ -554,6 +596,10 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
         selectedFilePath,
         activeWindowByPath,
         viewportEntriesByPath,
+        viewportWindowStartByPath,
+        activeMemoryWindowByPath,
+        viewportLoadingByPath,
+        sourceIndexStatsByPath,
         viewportTotalRowsByPath,
         viewportMatchedCountByPath,
         viewportMatchedIndicesByPath,
@@ -624,14 +670,25 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     };
 
     const workerClient = getEngineWorkerClient();
-    workerClient
-      .request({
-        type: 'parseChunk',
-        requestId: `parse-append:${normalizedPath}:${Date.now()}`,
-        chunk,
-        text: content,
-        startingLineNumber: normalizedStartLine,
-      })
+    const resetSourceBeforeIndex =
+      changeType === 'reset'
+        ? workerClient.request({
+            type: 'resetSource',
+            requestId: `reset-source:${normalizedPath}:${Date.now()}`,
+            sourceId: normalizedPath,
+          })
+        : Promise.resolve(null);
+
+    resetSourceBeforeIndex
+      .then(() =>
+        workerClient.request({
+          type: 'parseChunk',
+          requestId: `parse-append:${normalizedPath}:${Date.now()}`,
+          chunk,
+          text: content,
+          startingLineNumber: normalizedStartLine,
+        }),
+      )
       .then(async (parseRes) => {
         if (parseRes.type === 'parseChunk:done') {
           await workerClient.request({
@@ -640,10 +697,16 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
             sourceId: normalizedPath,
             entries: parseRes.entries,
           });
+          void get().refreshSourceIndexStats(normalizedPath);
 
           // Refetch viewport entries if we are viewing this file currently
           const activeWin = get().activeWindowByPath[normalizedPath];
           if (get().selectedFilePath === normalizedPath && activeWin) {
+            set((state) => {
+              const activeMemoryWindowByPath = { ...state.activeMemoryWindowByPath };
+              delete activeMemoryWindowByPath[normalizedPath];
+              return { activeMemoryWindowByPath };
+            });
             const { startRow, endRow } = activeWin;
             void get().fetchViewportEntries(normalizedPath, startRow, endRow);
           }
@@ -666,15 +729,52 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
     const isWholeWord = searchStore.isWholeWord;
     const includeFilter = settingsStore.preferences.includeFilter;
     const excludeFilter = settingsStore.preferences.excludeFilter;
+    const querySignature = createViewportQuerySignature({
+      severityFilters,
+      searchQuery,
+      filterToMatches,
+      isRegex,
+      isCaseSensitive,
+      isWholeWord,
+      includeFilter,
+      excludeFilter,
+    });
+    const visibleStartRow = Math.max(0, Math.floor(startRow));
+    const visibleEndRow = Math.max(visibleStartRow, Math.floor(endRow));
+    const visibleRowSpan = Math.max(1, visibleEndRow - visibleStartRow + 1);
+    const bufferRows = Math.max(ACTIVE_MEMORY_WINDOW_BUFFER_ROWS, visibleRowSpan * 3);
+    const existingWindow = get().activeMemoryWindowByPath[normalizedSourceId];
+
+    if (
+      existingWindow &&
+      existingWindow.querySignature === querySignature &&
+      visibleStartRow >= existingWindow.startRow + ACTIVE_MEMORY_WINDOW_REFETCH_GUARD_ROWS &&
+      visibleEndRow <= existingWindow.endRow - ACTIVE_MEMORY_WINDOW_REFETCH_GUARD_ROWS
+    ) {
+      return;
+    }
+
+    const activeStartRow = Math.max(0, visibleStartRow - bufferRows);
+    const activeEndRow = visibleEndRow + bufferRows;
 
     const workerClient = getEngineWorkerClient();
+    set((state) => ({
+      viewportLoadingByPath: {
+        ...state.viewportLoadingByPath,
+        [normalizedSourceId]: true,
+      },
+      statusMessage: 'Loading visible range...',
+    }));
+
     try {
       const res = await workerClient.request({
         type: 'getVisibleWindow',
-        requestId: `window:${normalizedSourceId}:${startRow}:${endRow}:${Date.now()}`,
+        requestId: `window:${normalizedSourceId}:${activeStartRow}:${activeEndRow}:${Date.now()}`,
         sourceId: normalizedSourceId,
-        startRow,
-        endRow,
+        startRow: activeStartRow,
+        endRow: activeEndRow,
+        visibleStartRow,
+        visibleEndRow,
         severityFilters,
         searchQuery,
         filterToMatches,
@@ -690,6 +790,28 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
           viewportEntriesByPath: {
             ...state.viewportEntriesByPath,
             [normalizedSourceId]: res.window.entries,
+          },
+          viewportWindowStartByPath: {
+            ...state.viewportWindowStartByPath,
+            [normalizedSourceId]: res.window.startRow,
+          },
+          activeMemoryWindowByPath: {
+            ...state.activeMemoryWindowByPath,
+            [normalizedSourceId]:
+              res.window.activeMemoryWindow ??
+              createFallbackMemoryWindow(
+                normalizedSourceId,
+                res.window.startRow,
+                res.window.endRow,
+                visibleStartRow,
+                visibleEndRow,
+                res.window.totalRows,
+                querySignature,
+              ),
+          },
+          viewportLoadingByPath: {
+            ...state.viewportLoadingByPath,
+            [normalizedSourceId]: false,
           },
           viewportTotalRowsByPath: {
             ...state.viewportTotalRowsByPath,
@@ -718,6 +840,89 @@ export const useViewerStore = create<ViewerStoreState>((set, get) => ({
       }
     } catch (error) {
       console.error('Failed to fetch viewport entries from worker:', error);
+      set((state) => ({
+        viewportLoadingByPath: {
+          ...state.viewportLoadingByPath,
+          [normalizedSourceId]: false,
+        },
+        errorMessage: error instanceof Error ? error.message : 'Failed to load visible range.',
+      }));
+    }
+  },
+
+  refreshSourceIndexStats: async (sourceId): Promise<void> => {
+    const normalizedSourceId = normalizePath(sourceId);
+    const workerClient = getEngineWorkerClient();
+
+    try {
+      const res = await workerClient.request({
+        type: 'getSourceIndexStats',
+        requestId: `stats:${normalizedSourceId}:${Date.now()}`,
+        sourceId: normalizedSourceId,
+      });
+
+      if (res.type === 'getSourceIndexStats:done') {
+        set((state) => ({
+          sourceIndexStatsByPath: {
+            ...state.sourceIndexStatsByPath,
+            [normalizedSourceId]: res.stats,
+          },
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to refresh source index stats:', error);
     }
   },
 }));
+
+const createViewportQuerySignature = (options: {
+  severityFilters?: Record<string, boolean>;
+  searchQuery?: string;
+  filterToMatches?: boolean;
+  isRegex?: boolean;
+  isCaseSensitive?: boolean;
+  isWholeWord?: boolean;
+  includeFilter?: string;
+  excludeFilter?: string;
+}): string => {
+  const severityFilters = options.severityFilters ?? {};
+  const severitySignature = Object.keys(severityFilters)
+    .sort()
+    .map((key) => `${key}:${severityFilters[key] ? '1' : '0'}`)
+    .join(',');
+
+  return [
+    `sev=${severitySignature}`,
+    `q=${options.searchQuery ?? ''}`,
+    `matchOnly=${options.filterToMatches ? '1' : '0'}`,
+    `regex=${options.isRegex ? '1' : '0'}`,
+    `case=${options.isCaseSensitive ? '1' : '0'}`,
+    `word=${options.isWholeWord ? '1' : '0'}`,
+    `include=${options.includeFilter ?? ''}`,
+    `exclude=${options.excludeFilter ?? ''}`,
+  ].join('|');
+};
+
+const createFallbackMemoryWindow = (
+  sourceId: string,
+  startRow: number,
+  endRow: number,
+  visibleStartRow: number,
+  visibleEndRow: number,
+  totalRows: number,
+  querySignature: string,
+): ActiveMemoryWindow => {
+  return {
+    sourceId,
+    startRow,
+    endRow,
+    visibleStartRow,
+    visibleEndRow,
+    beforeRows: Math.max(0, visibleStartRow - startRow),
+    afterRows: Math.max(0, endRow - visibleEndRow),
+    loadedRows: Math.max(0, endRow - startRow + 1),
+    totalRows,
+    querySignature,
+    indexGeneration: 0,
+  };
+};

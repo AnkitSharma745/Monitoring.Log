@@ -16,6 +16,8 @@ const EMPTY_ARRAY: never[] = [];
 export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogViewerProps>(
   ({ filePath }, ref): JSX.Element => {
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const scrollTopRef = useRef(0);
+    const scrollRafRef = useRef<number | null>(null);
     const [containerHeight, setContainerHeight] = useState(500);
     const [scrollTop, setScrollTop] = useState(0);
 
@@ -25,8 +27,14 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
     const viewportEntries = useViewerStore(
       (state) => state.viewportEntriesByPath[filePath] ?? EMPTY_ARRAY,
     );
+    const viewportWindowStart = useViewerStore(
+      (state) => state.viewportWindowStartByPath[filePath] ?? 0,
+    );
     const viewportTotalRows = useViewerStore(
       (state) => state.viewportTotalRowsByPath[filePath] ?? 0,
+    );
+    const isViewportLoading = useViewerStore(
+      (state) => state.viewportLoadingByPath[filePath] ?? false,
     );
     const viewportMatchedIndices = useViewerStore(
       (state) => state.viewportMatchedIndicesByPath[filePath] ?? EMPTY_ARRAY,
@@ -91,6 +99,14 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
       };
     }, []);
 
+    useEffect(() => {
+      return () => {
+        if (scrollRafRef.current !== null) {
+          cancelAnimationFrame(scrollRafRef.current);
+        }
+      };
+    }, []);
+
     const targetLineRowIndex = useViewerStore(
       (state) => state.targetLineRowIndexByPath[filePath] ?? null,
     );
@@ -149,7 +165,16 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
     }, [viewportTotalRows, autoScroll]);
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
-      setScrollTop(e.currentTarget.scrollTop);
+      scrollTopRef.current = e.currentTarget.scrollTop;
+
+      if (scrollRafRef.current !== null) {
+        return;
+      }
+
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRafRef.current = null;
+        setScrollTop(scrollTopRef.current);
+      });
     };
 
     const totalHeight = viewportTotalRows * rowHeight;
@@ -158,7 +183,7 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
     const renderedLines = (Array.isArray(viewportEntries) ? viewportEntries : []).map(
       (entry, index) => {
         if (!entry) return null;
-        const virtualIndex = startRow + index;
+        const virtualIndex = viewportWindowStart + index;
 
         const isActiveMatch =
           !!searchQuery &&
@@ -222,7 +247,7 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
         >
           <div
             style={{
-              transform: `translateY(${startRow * rowHeight}px)`,
+              transform: `translateY(${viewportWindowStart * rowHeight}px)`,
               display: 'flex',
               flexDirection: 'column',
               width: '100%',
@@ -231,6 +256,11 @@ export const VirtualizedLogViewer = forwardRef<HTMLDivElement, VirtualizedLogVie
             {renderedLines}
           </div>
         </div>
+        {isViewportLoading && isDocLoaded && (
+          <div className="pointer-events-none absolute right-3 top-3 rounded border border-line bg-panel px-2 py-1 font-mono text-[10px] text-muted shadow-panel">
+            Loading visible range...
+          </div>
+        )}
         {!isDocLoaded ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-ink-950">
             <div className="mb-3 animate-spin h-6 w-6 rounded-full border-2 border-accent border-t-transparent" />
