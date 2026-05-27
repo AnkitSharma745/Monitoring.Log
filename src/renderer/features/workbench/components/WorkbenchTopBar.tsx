@@ -28,26 +28,28 @@ export const WorkbenchTopBar = (): JSX.Element => {
   const selectedFileName = selectedFilePath ? filesByPath[selectedFilePath]?.name : null;
 
   return (
-    <header className="app-drag col-[1/-1] flex h-9 min-w-0 items-center gap-2 border-b border-line bg-panel px-2.5">
+    <header className="app-drag col-[1/-1] flex h-9 min-w-0 items-center gap-1.5 overflow-hidden border-b border-line bg-panel px-2">
       {/* Branding Logo */}
-      <div className="app-no-drag flex select-none items-center gap-2 pr-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded bg-accent text-panel shadow-sm shadow-accent/20 transition-transform duration-300 hover:scale-110">
+      <div className="app-no-drag flex min-w-0 shrink-0 select-none items-center gap-1.5 pr-1">
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-accent text-panel shadow-sm shadow-accent/20">
           <Activity size={13} className="stroke-[3]" />
         </div>
-        <span className="font-sans text-[11px] font-bold tracking-[0.08em] uppercase text-readable">
+        <span className="hidden truncate font-sans text-[11px] font-bold uppercase text-readable sm:inline">
           Monitoring<span className="text-accent">.</span>Log
         </span>
       </div>
 
       {/* Centered Document Title Bar */}
-      <div className="flex min-w-0 flex-1 items-center justify-center">
-        <div className="app-no-drag flex max-w-xl select-none items-center gap-1.5 rounded-full border border-line bg-ink-950/60 px-3 py-1 text-[11px] text-muted transition hover:border-accent/40">
+      <div className="flex min-w-0 flex-1 items-center justify-center overflow-hidden">
+        <div className="app-no-drag flex h-6 min-w-0 max-w-xl flex-1 select-none items-center gap-1.5 overflow-hidden rounded border border-line bg-ink-950/60 px-2 text-[11px] text-muted transition hover:border-accent/40">
           <Activity size={10} className="text-accent shrink-0" />
           {selectedFileName ? (
-            <span className="truncate">
+            <span className="min-w-0 truncate">
               <span className="font-medium text-readable">{selectedFileName}</span>
               <span className="mx-1.5 text-subtle">—</span>
-              <span className="text-[10px] text-subtle font-mono">{selectedFilePath}</span>
+              <span className="hidden text-[10px] text-subtle font-mono md:inline">
+                {selectedFilePath}
+              </span>
             </span>
           ) : (
             <span className="text-subtle">No active document</span>
@@ -56,12 +58,12 @@ export const WorkbenchTopBar = (): JSX.Element => {
       </div>
 
       {/* Action Buttons & Window Controls */}
-      <div className="app-no-drag flex min-w-0 items-center gap-0.5">
+      <div className="app-no-drag flex min-w-0 shrink-0 items-center gap-0.5 overflow-hidden">
         <Tooltip placement="right" label="Open files" shortcut={getShortcutLabel('openFiles')}>
           <Button
             size="sm"
             variant="ghost"
-            className="h-7"
+            className="h-7 w-7 px-0"
             disabled={pendingOperations > 0}
             aria-label="Open files"
             onClick={() => {
@@ -75,7 +77,7 @@ export const WorkbenchTopBar = (): JSX.Element => {
           <Button
             size="sm"
             variant="ghost"
-            className="h-7"
+            className="h-7 w-7 px-0"
             disabled={pendingOperations > 0}
             aria-label="Open folder"
             onClick={() => {
@@ -89,7 +91,7 @@ export const WorkbenchTopBar = (): JSX.Element => {
           <Button
             size="sm"
             variant="ghost"
-            className="h-7"
+            className="h-7 w-7 px-0"
             aria-label="Toggle side panel"
             onClick={toggleSidePanel}
           >
@@ -100,14 +102,14 @@ export const WorkbenchTopBar = (): JSX.Element => {
           <Button
             size="sm"
             variant="ghost"
-            className="h-7"
+            className="h-7 w-7 px-0"
             aria-label="Toggle bottom panel"
             onClick={toggleBottomPanel}
           >
             <PanelBottom size={13} />
           </Button>
         </Tooltip>
-        <div className="mx-1 h-5 w-px bg-line" />
+        <div className="mx-0.5 h-5 w-px shrink-0 bg-line" />
         <WindowControl label="Minimize" onClick={window.desktop.app.minimizeWindow}>
           <Minus size={14} />
         </WindowControl>
@@ -143,7 +145,7 @@ const WindowControl = ({
       <button
         type="button"
         className={[
-          'flex h-9 w-11 items-center justify-center text-muted transition hover:text-readable',
+          'flex h-9 w-10 shrink-0 items-center justify-center text-muted transition hover:text-readable',
           danger ? 'hover:bg-danger hover:text-white' : 'hover:bg-ink-800',
         ].join(' ')}
         aria-label={label}

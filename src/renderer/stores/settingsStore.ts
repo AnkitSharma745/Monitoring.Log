@@ -5,6 +5,15 @@ import type { LogSeverity } from '@renderer/features/logViewer/logParsing';
 export type DensityMode = 'compact' | 'comfortable';
 export type ThemePreference = 'light' | 'dark';
 
+export interface FeatureVisibilityPreferences {
+  aiEvidence: boolean;
+  incidents: boolean;
+  telemetry: boolean;
+  diagnostics: boolean;
+  timeline: boolean;
+  advancedBadges: boolean;
+}
+
 export interface ViewerPreferences {
   autoScroll: boolean;
   lineWrap: boolean;
@@ -17,6 +26,7 @@ export interface ViewerPreferences {
   excludeFilter: string;
   enableHeuristicHints: boolean;
   showIngestionTrace: boolean;
+  featureVisibility: FeatureVisibilityPreferences;
 }
 
 const createEnabledSeverityFilters = (): Record<LogSeverity, boolean> => {
@@ -26,6 +36,17 @@ const createEnabledSeverityFilters = (): Record<LogSeverity, boolean> => {
     info: true,
     debug: true,
     neutral: true,
+  };
+};
+
+const createDefaultFeatureVisibility = (): FeatureVisibilityPreferences => {
+  return {
+    aiEvidence: true,
+    incidents: true,
+    telemetry: true,
+    diagnostics: true,
+    timeline: true,
+    advancedBadges: true,
   };
 };
 
@@ -42,6 +63,7 @@ const createDefaultPreferences = (): ViewerPreferences => {
     excludeFilter: '',
     enableHeuristicHints: true,
     showIngestionTrace: true,
+    featureVisibility: createDefaultFeatureVisibility(),
   };
 };
 
@@ -66,6 +88,7 @@ interface SettingsStoreState {
   toggleSeverityFilter: (severity: LogSeverity) => void;
   toggleEnableHeuristicHints: () => void;
   toggleShowIngestionTrace: () => void;
+  setFeatureVisibility: (key: keyof FeatureVisibilityPreferences, visible: boolean) => void;
   setIncludeFilter: (val: string) => void;
   setExcludeFilter: (val: string) => void;
   resetLogFilters: () => void;
@@ -85,7 +108,35 @@ const mergePreferencesWithDefaults = (
       ...defaults.severityFilters,
       ...(userPrefs.severityFilters || {}),
     },
+    featureVisibility: {
+      ...defaults.featureVisibility,
+      ...(userPrefs.featureVisibility || {}),
+    },
   };
+};
+
+const updateFeatureVisibility = (
+  preferences: ViewerPreferences,
+  key: keyof FeatureVisibilityPreferences,
+  visible: boolean,
+): FeatureVisibilityPreferences => {
+  const current = preferences.featureVisibility;
+  switch (key) {
+    case 'aiEvidence':
+      return { ...current, aiEvidence: visible };
+    case 'incidents':
+      return { ...current, incidents: visible };
+    case 'telemetry':
+      return { ...current, telemetry: visible };
+    case 'diagnostics':
+      return { ...current, diagnostics: visible };
+    case 'timeline':
+      return { ...current, timeline: visible };
+    case 'advancedBadges':
+      return { ...current, advancedBadges: visible };
+    default:
+      return current;
+  }
 };
 
 const readPersistedSettings = (): {
@@ -217,6 +268,15 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
     }));
   },
 
+  setFeatureVisibility: (key, visible): void => {
+    set((state) => ({
+      preferences: {
+        ...state.preferences,
+        featureVisibility: updateFeatureVisibility(state.preferences, key, visible),
+      },
+    }));
+  },
+
   setIncludeFilter: (val): void => {
     set((state) => ({
       preferences: { ...state.preferences, includeFilter: val },
@@ -239,6 +299,9 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
         excludeFilter: '',
         enableHeuristicHints: true,
         showIngestionTrace: true,
+        featureVisibility: {
+          ...state.preferences.featureVisibility,
+        },
       },
     }));
   },

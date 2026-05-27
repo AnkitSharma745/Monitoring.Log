@@ -34,13 +34,15 @@ export class DocumentEngine {
         }
         if (parsed.chunks && Array.isArray(parsed.chunks)) {
           chunks.push(
-            ...parsed.chunks.map((c: { sectionTitle?: string; content?: string }, index: number) => ({
-              id: `${id}-chunk-${index}`,
-              documentId: id,
-              sectionTitle: c.sectionTitle || 'Section',
-              content: c.content || '',
-              keywords: this.extractKeywords(c.content || ''),
-            })),
+            ...parsed.chunks.map(
+              (c: { sectionTitle?: string; content?: string }, index: number) => ({
+                id: `${id}-chunk-${index}`,
+                documentId: id,
+                sectionTitle: c.sectionTitle || 'Section',
+                content: c.content || '',
+                keywords: this.extractKeywords(c.content || ''),
+              }),
+            ),
           );
         } else {
           // Chunk the JSON content itself

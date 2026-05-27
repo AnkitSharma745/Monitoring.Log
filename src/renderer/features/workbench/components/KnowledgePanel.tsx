@@ -58,7 +58,11 @@ export const KnowledgePanel = (): JSX.Element => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       const text = e.target?.result as string;
-      await ingestDocument(file.name, text, (file as unknown as { path?: string }).path || file.name);
+      await ingestDocument(
+        file.name,
+        text,
+        (file as unknown as { path?: string }).path || file.name,
+      );
       setIsImportOpen(false);
       // Trigger a refresh of matches and queries
       if (selectedFilePath) {
@@ -372,9 +376,9 @@ export const KnowledgePanel = (): JSX.Element => {
                   Baseline Rules ({4})
                 </div>
                 <div className="text-xs text-subtle italic p-4 bg-ink-900/20 rounded border border-line">
-                  Baseline rule validation is updated inside the primary &apos;Investigations&apos; panel
-                  under the &apos;Rules&apos; tab. Custom rules declared in manuals will be active here once
-                  manuals are imported.
+                  Baseline rule validation is updated inside the primary &apos;Investigations&apos;
+                  panel under the &apos;Rules&apos; tab. Custom rules declared in manuals will be
+                  active here once manuals are imported.
                 </div>
               </div>
             ) : (

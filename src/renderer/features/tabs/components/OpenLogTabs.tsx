@@ -19,7 +19,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
   }
 
   return (
-    <div className="no-scrollbar flex min-h-10 items-end gap-1 overflow-x-auto border-b border-line bg-ink-900 px-2 pt-2">
+    <div className="no-scrollbar flex h-9 min-h-9 shrink-0 items-end gap-1 overflow-x-auto overflow-y-hidden border-b border-line bg-ink-900 px-2 pt-1">
       {openTabs.map((tab) => {
         const file = filesByPath[tab.filePath];
         const isSelected = selectedFilePath === tab.filePath;
@@ -29,7 +29,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
           <div
             key={tab.filePath}
             className={[
-              'group flex h-8 max-w-56 items-center gap-2 rounded-t-md border border-b-0 px-2 text-xs transition',
+              'group flex h-8 min-w-24 max-w-56 shrink-0 items-center gap-1.5 overflow-hidden rounded-t border border-b-0 px-2 text-xs transition',
               isSelected
                 ? 'border-line bg-panel text-readable'
                 : 'border-transparent bg-ink-800 text-muted hover:border-line hover:text-readable',
@@ -38,7 +38,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
           >
             <button
               type="button"
-              className="flex min-w-0 flex-1 items-center gap-2"
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"
               onClick={() => {
                 void selectFile(tab.filePath);
               }}
@@ -49,7 +49,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
               />
               <span className="truncate">{file?.name ?? tab.filePath}</span>
               {tab.unreadCount > 0 && (
-                <span className="rounded-full bg-accent px-1.5 text-[10px] text-white">
+                <span className="flex h-4 min-w-4 max-w-8 shrink-0 items-center justify-center overflow-hidden rounded bg-accent px-1 text-[10px] leading-4 text-white">
                   {tab.unreadCount}
                 </span>
               )}
@@ -60,7 +60,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
               <button
                 type="button"
                 className={[
-                  'text-subtle hover:text-accent transition-opacity focus:opacity-100',
+                  'flex h-5 w-5 shrink-0 items-center justify-center text-subtle transition-opacity hover:text-accent focus:opacity-100',
                   tab.pinned
                     ? 'opacity-80'
                     : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
@@ -78,7 +78,7 @@ export const OpenLogTabs = (): JSX.Element | null => {
               <Tooltip label="Close tab" shortcut="Ctrl/Cmd+W">
                 <button
                   type="button"
-                  className="text-subtle hover:text-danger opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center text-subtle opacity-0 transition-opacity hover:text-danger group-hover:opacity-100 group-focus-within:opacity-100"
                   onClick={() => {
                     closeTab(tab.filePath);
                   }}

@@ -66,13 +66,15 @@ export const SidePanelHost = (): JSX.Element | null => {
 
   return (
     <aside
-      className="relative row-[2/4] min-w-0 border-r border-line bg-panel flex flex-col"
+      className="relative row-[2/4] flex min-w-0 flex-col overflow-hidden border-r border-line bg-panel"
       style={{ width: sidePanelWidth }}
     >
-      <header className="flex h-8 items-center justify-between border-b border-line bg-panel px-2 shrink-0">
-        <span className="text-[11px] font-bold uppercase text-subtle">{activeTitle}</span>
-        <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={toggleSidePanel}>
-          Hide
+      <header className="flex h-8 shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-line bg-panel px-2">
+        <span className="min-w-0 truncate text-[11px] font-bold uppercase text-subtle">
+          {activeTitle}
+        </span>
+        <Button size="xs" variant="ghost" className="h-6 px-1.5" onClick={toggleSidePanel}>
+          <span className="truncate">Hide</span>
         </Button>
       </header>
       <div className="flex-1 min-h-0 overflow-hidden relative">{content}</div>

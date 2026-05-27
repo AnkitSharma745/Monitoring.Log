@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 interface TooltipProps {
   label: string;
@@ -70,45 +71,54 @@ export const Tooltip = ({
     setCoords({ top, left });
   }, [visible, placement]);
 
+  const tooltipNode = (
+    <span
+      ref={tooltipRef}
+      role="tooltip"
+      style={
+        coords
+          ? {
+              position: 'fixed',
+              top: coords.top,
+              left: coords.left,
+              opacity: 1,
+              pointerEvents: 'none',
+            }
+          : {
+              position: 'fixed',
+              top: -9999,
+              left: -9999,
+              opacity: 0,
+              pointerEvents: 'none',
+            }
+      }
+      className={[
+        'z-[1000] max-w-[min(28rem,calc(100vw-16px))] whitespace-nowrap rounded border border-line bg-ink-950 px-2 py-1 text-[11px] text-readable shadow-panel transition-opacity duration-100',
+        visible ? 'block' : 'hidden',
+      ].join(' ')}
+    >
+      <span className="inline-block min-w-0 max-w-80 truncate align-bottom">{label}</span>
+      {shortcut && <span className="ml-2 text-subtle">{shortcut}</span>}
+    </span>
+  );
+
   return (
     <span
       ref={triggerRef}
       onMouseEnter={() => setVisible(true)}
+      onFocus={() => setVisible(true)}
       onMouseLeave={() => {
         setVisible(false);
         setCoords(null);
       }}
-      className="inline-flex"
+      onBlur={() => {
+        setVisible(false);
+        setCoords(null);
+      }}
+      className="inline-flex min-w-0"
     >
       {children}
-      <span
-        ref={tooltipRef}
-        role="tooltip"
-        style={
-          coords
-            ? {
-                position: 'fixed',
-                top: coords.top,
-                left: coords.left,
-                opacity: 1,
-                pointerEvents: 'none',
-              }
-            : {
-                position: 'fixed',
-                top: -9999,
-                left: -9999,
-                opacity: 0,
-                pointerEvents: 'none',
-              }
-        }
-        className={[
-          'z-50 whitespace-nowrap rounded-md border border-line bg-ink-950 px-2.5 py-1.5 text-[11px] text-readable shadow-panel transition-opacity duration-150',
-          visible ? 'block' : 'hidden',
-        ].join(' ')}
-      >
-        {label}
-        {shortcut && <span className="ml-2 text-subtle">{shortcut}</span>}
-      </span>
+      {createPortal(tooltipNode, document.body)}
     </span>
   );
 };

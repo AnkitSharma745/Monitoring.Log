@@ -164,11 +164,11 @@ export const TimelinePanel = (): JSX.Element => {
     if (!isSplitActive || !selectedFilePath || !splitFilePath) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPrimaryStateSeq(null);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setSplitStateSeq(null);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setPrimaryIncidents([]);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setSplitIncidents([]);
       return;
     }
@@ -238,7 +238,6 @@ export const TimelinePanel = (): JSX.Element => {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab('diff');
     } else {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab('correlation');
     }
   }, [isSplitActive, splitFilePath]);
@@ -248,7 +247,7 @@ export const TimelinePanel = (): JSX.Element => {
     if (!selectedFilePath) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPatterns([]);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setActiveSequence(null);
       return;
     }
@@ -357,7 +356,11 @@ export const TimelinePanel = (): JSX.Element => {
           <div className="space-y-2">
             <select
               value={searchField}
-              onChange={(e) => setSearchField(e.target.value as 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId')}
+              onChange={(e) =>
+                setSearchField(
+                  e.target.value as 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId',
+                )
+              }
               className="w-full bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-readable focus:outline-none focus:border-accent"
             >
               <option value="correlationId">Correlation ID</option>
@@ -546,10 +549,12 @@ export const TimelinePanel = (): JSX.Element => {
                     {(() => {
                       const pDelay = getBootDelayMs(primaryStateSeq);
                       const sDelay = getBootDelayMs(splitStateSeq);
-                      const pErrors = viewportSeverityStatsByPath[selectedFilePath || '']?.error || 0;
+                      const pErrors =
+                        viewportSeverityStatsByPath[selectedFilePath || '']?.error || 0;
                       const sErrors = viewportSeverityStatsByPath[splitFilePath || '']?.error || 0;
 
-                      const delayDelta = pDelay !== null && sDelay !== null ? sDelay - pDelay : null;
+                      const delayDelta =
+                        pDelay !== null && sDelay !== null ? sDelay - pDelay : null;
                       const errorDelta = sErrors - pErrors;
 
                       return (
@@ -571,7 +576,9 @@ export const TimelinePanel = (): JSX.Element => {
                           </div>
                           <div className="text-[9px] font-bold">
                             {errorDelta > 0 ? (
-                              <span className="text-danger">+{errorDelta} Unique Outage Errors</span>
+                              <span className="text-danger">
+                                +{errorDelta} Unique Outage Errors
+                              </span>
                             ) : errorDelta < 0 ? (
                               <span className="text-success">{errorDelta} Errors</span>
                             ) : (
@@ -638,15 +645,17 @@ export const TimelinePanel = (): JSX.Element => {
                               item.state === 'FAILURE'
                                 ? 'border-danger/30 bg-danger-soft/10'
                                 : hasDiverged
-                                ? 'border-warning/30 bg-warning-soft/10'
-                                : 'border-ink-800'
+                                  ? 'border-warning/30 bg-warning-soft/10'
+                                  : 'border-ink-800'
                             }`}
                           >
                             {/* Primary Document Side */}
                             <div className="flex-1 min-w-0">
                               {item.primary ? (
                                 <div
-                                  onClick={() => handleLineClick(item.primary!.lineNumber, selectedFilePath!)}
+                                  onClick={() =>
+                                    handleLineClick(item.primary!.lineNumber, selectedFilePath!)
+                                  }
                                   className="cursor-pointer hover:bg-ink-850 p-2 rounded border border-ink-800/60 text-left space-y-1 transition group"
                                 >
                                   <div className="flex items-center justify-between text-[9px] text-subtle font-mono font-bold">
@@ -678,10 +687,10 @@ export const TimelinePanel = (): JSX.Element => {
                                   item.state === 'FAILURE'
                                     ? 'bg-danger/20 border-danger/55 text-danger'
                                     : item.state === 'RECOVERY'
-                                    ? 'bg-success/20 border-success/55 text-success'
-                                    : hasDiverged
-                                    ? 'bg-warning/20 border-warning/55 text-warning'
-                                    : 'bg-info/20 border-info/55 text-info'
+                                      ? 'bg-success/20 border-success/55 text-success'
+                                      : hasDiverged
+                                        ? 'bg-warning/20 border-warning/55 text-warning'
+                                        : 'bg-info/20 border-info/55 text-info'
                                 }`}
                               >
                                 {item.state}
@@ -704,7 +713,9 @@ export const TimelinePanel = (): JSX.Element => {
                             <div className="flex-1 min-w-0">
                               {item.split ? (
                                 <div
-                                  onClick={() => handleLineClick(item.split!.lineNumber, splitFilePath!)}
+                                  onClick={() =>
+                                    handleLineClick(item.split!.lineNumber, splitFilePath!)
+                                  }
                                   className="cursor-pointer hover:bg-ink-850 p-2 rounded border border-ink-800/60 text-left space-y-1 transition group"
                                 >
                                   <div className="flex items-center justify-between text-[9px] text-subtle font-mono font-bold">
@@ -774,9 +785,7 @@ export const TimelinePanel = (): JSX.Element => {
                                 <span className="font-bold text-accent">{inc.category}</span>
                                 <span className="text-subtle font-mono">{inc.timestampStart}</span>
                               </div>
-                              <div className="text-[11px] font-bold text-readable">
-                                {inc.title}
-                              </div>
+                              <div className="text-[11px] font-bold text-readable">{inc.title}</div>
                             </div>
                           ))}
                         </div>
@@ -819,9 +828,7 @@ export const TimelinePanel = (): JSX.Element => {
                                 <span className="font-bold text-danger">{inc.category}</span>
                                 <span className="text-subtle font-mono">{inc.timestampStart}</span>
                               </div>
-                              <div className="text-[11px] font-bold text-readable">
-                                {inc.title}
-                              </div>
+                              <div className="text-[11px] font-bold text-readable">{inc.title}</div>
                             </div>
                           ))}
                         </div>

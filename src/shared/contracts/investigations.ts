@@ -107,6 +107,13 @@ export interface Investigation {
 
   // Phase 8 Custom Rule inject capability
   customRules?: ExtractedRule[];
+
+  // Phase 10 Ecosystem additions
+  rulePacks?: RulePack[];
+  playbooks?: Playbook[];
+  observedPatterns?: ObservedPattern[];
+  activeRcaDrafts?: Record<string, RcaDraft>;
+  auditLog?: InvestigationAuditEntry[];
 }
 
 export interface InvestigationTimelineEvent {
@@ -154,4 +161,98 @@ export interface OperationalDegradationResult {
   score: number; // 0 to 100
   level: 'nominal' | 'degraded' | 'critical';
   factors: string[];
+}
+
+// Phase 10 Ecosystem Structures
+
+export type PlaybookStepType =
+  | 'scan_keyword'
+  | 'state_transition'
+  | 'correlation_check'
+  | 'peripheral_status';
+
+export interface PlaybookStep {
+  id: string;
+  title: string;
+  description: string;
+  type: PlaybookStepType;
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
+  criteria: {
+    pattern?: string;
+    stateName?: string;
+    expectedBehavior?: string;
+  };
+  matchedEntryIds: string[];
+  matchedLineNumbers: number[];
+  evidenceSummary?: string;
+}
+
+export interface Playbook {
+  id: string;
+  name: string;
+  description: string;
+  category: 'payment' | 'hardware' | 'network' | 'system';
+  steps: PlaybookStep[];
+  status: 'idle' | 'running' | 'completed' | 'failed';
+}
+
+export interface RulePack {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  category: 'payment' | 'hardware' | 'network' | 'system';
+  rules: ExtractedRule[];
+}
+
+export interface ObservedPattern {
+  id: string;
+  pattern: string;
+  occurrencesCount: number;
+  incidentCategory: IncidentCategory;
+  averageConfidence: number;
+  sampleMessage: string;
+  sourceFilePaths: string[];
+  suggestedRuleName: string;
+  suggestedExpectedBehavior: string;
+  isApproved: boolean;
+}
+
+export interface RcaConfidenceBreakdown {
+  score: number; // 0 to 100
+  matchedRulesCount: number;
+  matchedStatesCount: number;
+  contributingTelemetryLines: number[];
+  uncertaintyFactors: string[];
+}
+
+export interface RcaDraft {
+  id: string;
+  incidentId: string;
+  confidence: RcaConfidenceBreakdown;
+  reasoningTrace: string[];
+  deterministicViolations: string[];
+  timelinePropagation: string[];
+  uncertainties: string[];
+  evidenceLinks: Array<{ entryId: string; lineNumber: number; message: string }>;
+  suggestedRecoveryPath: string;
+  draftMarkdown: string;
+}
+
+export interface TriageRank {
+  incidentId: string;
+  severityScore: number; // 0 to 100
+  impactLevel: 'low' | 'medium' | 'high';
+  primaryStartingCoordinate: number;
+  propagationDepth: number;
+  contributingFactors: string[];
+}
+
+export interface InvestigationAuditEntry {
+  id: string;
+  timestamp: string;
+  action: 'rule_create' | 'rule_delete' | 'playbook_run' | 'pattern_promote' | 'case_export';
+  targetId: string;
+  details: string;
+  evidenceLinks: Array<{ entryId: string; lineNumber: number }>;
 }

@@ -185,45 +185,37 @@ export const LogViewer = (): JSX.Element => {
       <OpenLogTabs />
 
       {/* File Header Telemetry */}
-      <header className="border-b border-line bg-panel px-4 py-2 shrink-0">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-sm font-semibold text-readable font-mono">
+      <header className="shrink-0 overflow-hidden border-b border-line bg-panel px-2.5 py-1.5">
+        <div className="flex min-w-0 items-center justify-between gap-2 overflow-hidden">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              <h1 className="min-w-0 truncate font-mono text-sm font-semibold text-readable">
                 {selectedFile.name}
               </h1>
-              <Badge className="font-mono text-[10px]">{formatBytes(selectedFile.sizeBytes)}</Badge>
-              <Badge className="font-mono text-[10px]">Lines {lineCount}</Badge>
+              <Badge className="font-mono" maxWidthClassName="max-w-20">
+                {formatBytes(selectedFile.sizeBytes)}
+              </Badge>
+              <Badge className="font-mono" maxWidthClassName="max-w-24">
+                Lines {lineCount}
+              </Badge>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-xs text-muted font-mono">
-            {isWatching && (
-              <Badge tone="success" className="text-[10px]">
-                Live
-              </Badge>
-            )}
-            {truncatedHead && (
-              <Badge tone="warning" className="text-[10px]">
-                Tail
-              </Badge>
-            )}
-            {trimmedInRenderer && (
-              <Badge tone="warning" className="text-[10px]">
-                Trimmed
-              </Badge>
-            )}
-            <Badge tone={stats.error > 0 ? 'danger' : 'neutral'} className="text-[10px]">
+          <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-hidden font-mono text-xs text-muted">
+            {isWatching && <Badge tone="success">Live</Badge>}
+            {truncatedHead && <Badge tone="warning">Tail</Badge>}
+            {trimmedInRenderer && <Badge tone="warning">Trimmed</Badge>}
+            <Badge tone={stats.error > 0 ? 'danger' : 'neutral'} maxWidthClassName="max-w-20">
               {stats.error} error
             </Badge>
-            <Badge tone={stats.warn > 0 ? 'warning' : 'neutral'} className="text-[10px]">
+            <Badge tone={stats.warn > 0 ? 'warning' : 'neutral'} maxWidthClassName="max-w-20">
               {stats.warn} warn
             </Badge>
             {matchCount > 0 && (
-              <Badge tone="info" className="text-[10px]">
+              <Badge tone="info" maxWidthClassName="max-w-20">
                 {matchCount} match
               </Badge>
             )}
-            <Badge className="text-[10px]">
+            <Badge className="hidden md:inline-flex" maxWidthClassName="max-w-48">
               Modified {formatDateTime(selectedFile.modifiedAt)}
             </Badge>
           </div>
@@ -231,7 +223,7 @@ export const LogViewer = (): JSX.Element => {
       </header>
 
       {activeWatcher?.lastErrorMessage && (
-        <div className="flex items-center justify-between gap-3 border-b border-danger/30 bg-danger-soft px-4 py-2 text-sm text-danger font-mono shrink-0">
+        <div className="flex shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-danger/30 bg-danger-soft px-2.5 py-1.5 font-mono text-sm text-danger">
           <div className="min-w-0 truncate">
             <span className="font-semibold">Watcher error:</span> {activeWatcher.lastErrorMessage}
           </div>
@@ -261,8 +253,10 @@ export const LogViewer = (): JSX.Element => {
         {/* Left Column Viewer (Main Workspace) */}
         <div className="flex-1 flex flex-col min-w-0 h-full relative">
           {isSplitActive && (
-            <div className="h-5 shrink-0 bg-ink-900/80 border-b border-line flex items-center px-3 justify-between text-[9px] text-subtle font-mono font-bold select-none">
-              <span className="text-accent uppercase">Main: {selectedFile.name}</span>
+            <div className="flex h-5 shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-line bg-ink-900/80 px-2 font-mono text-[9px] font-bold text-subtle select-none">
+              <span className="min-w-0 truncate uppercase text-accent">
+                Main: {selectedFile.name}
+              </span>
               <span>LEFT WORKSPACE</span>
             </div>
           )}
@@ -272,15 +266,15 @@ export const LogViewer = (): JSX.Element => {
         {/* Right Column Viewer (Comparative Split screen Workspace) */}
         {isSplitActive && (
           <div className="flex-1 flex flex-col min-w-0 h-full relative">
-            <div className="h-5 shrink-0 bg-ink-900/80 border-b border-line flex items-center px-3 justify-between text-[9px] text-subtle font-mono font-bold select-none">
-              <span className="text-accent uppercase">
+            <div className="flex h-5 shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-line bg-ink-900/80 px-2 font-mono text-[9px] font-bold text-subtle select-none">
+              <span className="min-w-0 truncate uppercase text-accent">
                 Compare: {splitFile ? splitFile.name : 'Select open target'}
               </span>
 
               <select
                 value={splitFilePath || ''}
                 onChange={(e) => void selectSplitFile(e.target.value || null)}
-                className="bg-ink-950 border border-line rounded px-1 text-[9px] text-readable focus:outline-none focus:border-accent"
+                className="h-4 max-w-40 shrink-0 rounded border border-line bg-ink-950 px-1 text-[9px] text-readable focus:border-accent focus:outline-none"
               >
                 <option value="">Select compare target...</option>
                 {openTabs
@@ -296,9 +290,8 @@ export const LogViewer = (): JSX.Element => {
             {splitFilePath ? (
               <VirtualizedLogViewer filePath={splitFilePath} ref={rightViewerRef} />
             ) : (
-              <div className="flex-1 flex items-center justify-center p-6 text-center text-[11px] text-subtle font-mono bg-ink-950 select-none">
-                Please select another open file from the dropdown above to begin side-by-side
-                comparative analysis.
+              <div className="flex flex-1 items-center justify-center bg-ink-950 p-6 text-center font-mono text-[11px] text-subtle select-none">
+                Select another open file to begin side-by-side comparative analysis.
               </div>
             )}
           </div>

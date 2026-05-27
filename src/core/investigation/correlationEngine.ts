@@ -9,6 +9,10 @@ import type {
   GraphEdge,
   IncidentKnowledgeGraph,
   OperationalDegradationResult,
+  Playbook,
+  RcaDraft,
+  TriageRank,
+  ObservedPattern,
 } from '@shared/contracts/investigations';
 import type { ExtractedRule } from '@shared/contracts/knowledge';
 import type { StructuredLogEntry } from '@shared/contracts/logs';
@@ -25,7 +29,7 @@ export class OperationalCorrelationEngine {
   public static detectIncidents(
     sourceId: string,
     entries: StructuredLogEntry[],
-    _customRules?: ExtractedRule[]
+    _customRules?: ExtractedRule[],
   ): Incident[] {
     const incidents: Incident[] = [];
     const timeThresholdMs = 45000; // 45 seconds to group related logs
@@ -773,7 +777,7 @@ export class OperationalCorrelationEngine {
   public static compileIncidentGraph(
     incidents: Incident[],
     sequence: StateTransitionSequence | null,
-    ruleResults: DomainRuleResult[]
+    ruleResults: DomainRuleResult[],
   ): IncidentKnowledgeGraph {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
@@ -853,7 +857,12 @@ export class OperationalCorrelationEngine {
           const incEnd = inc.timestampEnd ? Date.parse(inc.timestampEnd) : incStart;
           const transTime = t.timestamp ? Date.parse(t.timestamp) : 0;
 
-          if (transTime && incStart && transTime >= incStart - 30000 && transTime <= incEnd + 30000) {
+          if (
+            transTime &&
+            incStart &&
+            transTime >= incStart - 30000 &&
+            transTime <= incEnd + 30000
+          ) {
             edges.push({
               sourceId: inc.id,
               targetId: nodeId,
@@ -907,7 +916,7 @@ export class OperationalCorrelationEngine {
    */
   public static calculateDegradationScore(
     incidents: Incident[],
-    ruleResults: DomainRuleResult[]
+    ruleResults: DomainRuleResult[],
   ): OperationalDegradationResult {
     let score = 100;
     const factors: string[] = [];
@@ -927,13 +936,17 @@ export class OperationalCorrelationEngine {
     const heartbeatIncidents = incidents.filter((i) => i.category === 'heartbeat_dropout');
     if (heartbeatIncidents.length > 0) {
       score -= heartbeatIncidents.length * 12;
-      factors.push(`${heartbeatIncidents.length} Heartbeat network connectivity dropouts recorded.`);
+      factors.push(
+        `${heartbeatIncidents.length} Heartbeat network connectivity dropouts recorded.`,
+      );
     }
 
     const terminalIncidents = incidents.filter((i) => i.category === 'terminal_id_failure');
     if (terminalIncidents.length > 0) {
       score -= terminalIncidents.length * 20;
-      factors.push(`Kiosk experienced ${terminalIncidents.length} critical identification / authentication failures.`);
+      factors.push(
+        `Kiosk experienced ${terminalIncidents.length} critical identification / authentication failures.`,
+      );
     }
 
     const printerIncidents = incidents.filter((i) => i.category === 'printer_reconnect');
@@ -963,5 +976,465 @@ export class OperationalCorrelationEngine {
     }
 
     return { score, level, factors };
+  }
+
+  /**
+   * Deterministic Guided Playbook Step Validator.
+   * Scans log frames, state sequences, and rules validations to verify playbook instructions.
+   */
+  public static executePlaybook(
+    playbook: Playbook,
+    entries: StructuredLogEntry[],
+    transitions: StateTransition[],
+    _ruleResults: DomainRuleResult[],
+  ): Playbook {
+    let allStepsPassed = true;
+    let anyStepFailed = false;
+
+    const updatedSteps = playbook.steps.map((step) => {
+      const criteria = step.criteria;
+      let status: 'passed' | 'failed' | 'skipped' = 'failed';
+      let matchedEntryIds: string[] = [];
+      let matchedLineNumbers: number[] = [];
+      let evidenceSummary = '';
+
+      if (step.type === 'scan_keyword' && criteria.pattern) {
+        try {
+          const regex = new RegExp(criteria.pattern, 'i');
+          const matches = entries.filter((e) => regex.test(e.message || e.raw || ''));
+          if (matches.length > 0) {
+            status = 'passed';
+            matchedEntryIds = matches.map((m) => m.id);
+            matchedLineNumbers = matches.map((m) => m.lineNumber);
+            evidenceSummary = `Verified: Detected ${matches.length} matching event logs.`;
+          } else {
+            status = 'failed';
+            evidenceSummary = `Unresolved: Pattern "${criteria.pattern}" not found in log frame.`;
+          }
+        } catch {
+          status = 'failed';
+          evidenceSummary = 'Error: Invalid keyword regex evaluation parameter.';
+        }
+      } else if (step.type === 'state_transition' && criteria.stateName) {
+        const targetState = criteria.stateName.toUpperCase();
+        const matches = transitions.filter((t) => t.toState.toUpperCase() === targetState);
+        if (matches.length > 0) {
+          status = 'passed';
+          matchedEntryIds = matches.map((m) => m.entryId);
+          matchedLineNumbers = matches.map((m) => m.lineNumber);
+          evidenceSummary = `Verified: State sequence transitioned successfully to ${criteria.stateName}.`;
+        } else {
+          status = 'failed';
+          evidenceSummary = `Unresolved: State engine never reached state "${criteria.stateName}".`;
+        }
+      } else if (step.type === 'peripheral_status' && criteria.pattern) {
+        try {
+          const regex = new RegExp(criteria.pattern, 'i');
+          const matches = entries.filter((e) => regex.test(e.message || e.raw || ''));
+          const disconnects = matches.filter((m) =>
+            /disconnect|offline|failed|lost/i.test(m.message || ''),
+          );
+          const connects = matches.filter((m) =>
+            /connect|online|ready|open/i.test(m.message || ''),
+          );
+
+          matchedEntryIds = matches.map((m) => m.id);
+          matchedLineNumbers = matches.map((m) => m.lineNumber);
+
+          if (disconnects.length > 0 && connects.length === 0) {
+            status = 'failed';
+            evidenceSummary = `Critical: Peripheral disconnected at line ${disconnects[0]?.lineNumber || 0} and did not recover.`;
+          } else if (connects.length > 0) {
+            status = 'passed';
+            evidenceSummary = `Verified: Peripheral active. Online trace detected at line ${connects[connects.length - 1]?.lineNumber || 0}.`;
+          } else {
+            status = 'failed';
+            evidenceSummary = `Unresolved: No peripheral connection telemetry found for "${criteria.pattern}".`;
+          }
+        } catch {
+          status = 'failed';
+          evidenceSummary = 'Error: Peripheral match pattern regex error.';
+        }
+      } else if (step.type === 'correlation_check' && criteria.expectedBehavior) {
+        // Evaluates payment or retry-storm correlation checks
+        const stormRegex = /retry|attempt|storm/i;
+        const matchingStorms = entries.filter((e) => stormRegex.test(e.message || ''));
+        if (matchingStorms.length > 10) {
+          status = 'failed';
+          matchedEntryIds = matchingStorms.slice(0, 10).map((e) => e.id);
+          matchedLineNumbers = matchingStorms.slice(0, 10).map((e) => e.lineNumber);
+          evidenceSummary = `Breached: Detected a dense sequence of ${matchingStorms.length} payment/API retries (Retry Storm).`;
+        } else {
+          status = 'passed';
+          evidenceSummary =
+            'Verified: Telemetry retries remain inside standard operational thresholds.';
+        }
+      } else {
+        status = 'skipped';
+        evidenceSummary = 'Skipped: Incomplete or undefined step verification parameters.';
+      }
+
+      if (status === 'failed') {
+        allStepsPassed = false;
+        anyStepFailed = true;
+      }
+
+      return {
+        ...step,
+        status,
+        matchedEntryIds,
+        matchedLineNumbers,
+        evidenceSummary,
+      };
+    });
+
+    let status: 'idle' | 'running' | 'completed' | 'failed' = 'idle';
+    if (updatedSteps.length > 0) {
+      if (anyStepFailed) status = 'failed';
+      else if (allStepsPassed) status = 'completed';
+    }
+
+    return {
+      ...playbook,
+      steps: updatedSteps,
+      status,
+    };
+  }
+
+  /**
+   * Explainable evidence-grounded RCA Draft Compiler.
+   * Aggregates telemetry matches, skipped transition sequences, and active rules compliance breaches
+   * to construct an explainable diagnostic report template.
+   */
+  public static generateRcaDraft(
+    incident: Incident,
+    entries: StructuredLogEntry[],
+    ruleResults: DomainRuleResult[],
+    transitions: StateTransition[],
+  ): RcaDraft {
+    const timestampStart = incident.timestampStart ? Date.parse(incident.timestampStart) : null;
+    const timestampEnd = incident.timestampEnd ? Date.parse(incident.timestampEnd) : null;
+
+    // Filter relevant rules violations that overlap temporally with the incident
+    const relevantRuleViolations = ruleResults.filter((rule) => {
+      if (rule.status !== 'violation') return false;
+      // If rule references logs, check if they overlap with the incident's active bounds
+      return rule.evidenceEntryIds.some((id) => incident.entryIds.includes(id));
+    });
+
+    // Check states active leading up to or during the incident
+    const skipChecks = ['INITIALIZING', 'CONNECTING', 'READY'];
+    const uncertainties: string[] = [];
+    const matchedStateNames = transitions.map((t) => t.toState.toUpperCase());
+
+    skipChecks.forEach((state) => {
+      if (!matchedStateNames.includes(state)) {
+        uncertainties.push(
+          `Skipped State Check: Log contains no record of machine transitioning to "${state}" before failure.`,
+        );
+      }
+    });
+
+    // Temporal gaps check: scan for gaps in log lines > 30 seconds inside incident timeframe
+    if (timestampStart !== null && timestampEnd !== null) {
+      const incidentDuration = Math.abs(timestampEnd - timestampStart);
+      if (incidentDuration > 30000) {
+        // scan logs inside timeframe to see if there is a gap
+        const periodEntries = entries.filter((e) => {
+          if (e.timestampEpochMs === null) return false;
+          return e.timestampEpochMs >= timestampStart && e.timestampEpochMs <= timestampEnd;
+        });
+
+        for (let i = 1; i < periodEntries.length; i++) {
+          const prev = periodEntries[i - 1]?.timestampEpochMs || 0;
+          const curr = periodEntries[i]?.timestampEpochMs || 0;
+          if (curr - prev > 20000) {
+            uncertainties.push(
+              `Telemetry Timeline Gap: Missing event logs for ${Math.round((curr - prev) / 1000)}s between line ${periodEntries[i - 1]?.lineNumber || 0} and ${periodEntries[i]?.lineNumber || 0}.`,
+            );
+          }
+        }
+      }
+    }
+
+    // Expose uncertainty when socket closures lack TCP FIN telemetry
+    const resetRegex = /reset|abrupt|closed|connection lost|disconnect/i;
+    const hasAbruptReset = entries.some((e) => {
+      if (!incident.entryIds.includes(e.id)) return false;
+      return resetRegex.test(e.message || '');
+    });
+    if (hasAbruptReset) {
+      uncertainties.push(
+        'Uncertainty Boundary: Kiosk socket connection closed abruptly without full TCP FIN telemetry handshake.',
+      );
+    }
+
+    // Build the confidence score breakdown
+    let score = 100;
+    const contributingTelemetryLines: number[] = [];
+
+    // Deduct for violations and uncertainties
+    score -= relevantRuleViolations.length * 15;
+    score -= uncertainties.length * 10;
+
+    // Clamp score
+    score = Math.max(10, Math.min(100, score));
+
+    // Gather contributing coordinates
+    relevantRuleViolations.forEach((rule) => {
+      rule.evidenceEntryIds.forEach((id) => {
+        const entry = entries.find((e) => e.id === id);
+        if (entry && !contributingTelemetryLines.includes(entry.lineNumber)) {
+          contributingTelemetryLines.push(entry.lineNumber);
+        }
+      });
+    });
+
+    incident.entryIds.forEach((id) => {
+      const entry = entries.find((e) => e.id === id);
+      if (entry && !contributingTelemetryLines.includes(entry.lineNumber)) {
+        contributingTelemetryLines.push(entry.lineNumber);
+      }
+    });
+
+    const confidenceBreakdown = {
+      score,
+      matchedRulesCount: ruleResults.filter((r) => r.status === 'passed').length,
+      matchedStatesCount: matchedStateNames.length,
+      contributingTelemetryLines: contributingTelemetryLines.sort((a, b) => a - b),
+      uncertaintyFactors: uncertainties,
+    };
+
+    const reasoningTrace = [
+      `Aggregated incident category: ${incident.category}`,
+      `Analyzed ${incident.entryIds.length} event frames in temporal threshold.`,
+      `Audited ${relevantRuleViolations.length} active SLA rules violations.`,
+      `Identified ${uncertainties.length} operational telemetry boundaries.`,
+    ];
+
+    const violationsList = relevantRuleViolations.map(
+      (r) => `Rule Violation: "${r.name}" (${r.expectedBehavior})`,
+    );
+    const timelinePropagation = transitions
+      .filter((t) => {
+        if (t.timestamp === null || timestampStart === null || timestampEnd === null) return false;
+        const epoch = Date.parse(t.timestamp);
+        return epoch >= timestampStart - 10000 && epoch <= timestampEnd + 10000;
+      })
+      .map(
+        (t) => `[${t.timestamp || ''}] Transitioned to state ${t.toState} (Line ${t.lineNumber})`,
+      );
+
+    const evidenceLinks = entries
+      .filter((e) => incident.entryIds.includes(e.id))
+      .map((e) => ({
+        entryId: e.id,
+        lineNumber: e.lineNumber,
+        message: e.message || e.raw || '',
+      }));
+
+    // Suggest a deterministic recovery path based on incident category
+    let suggestedRecoveryPath = 'Standard system diagnostic checklist recommended.';
+    if (incident.category === 'payment_timeout') {
+      suggestedRecoveryPath =
+        'Verify payment controller peripheral connection port, validate terminal cashless token configuration, and trigger serial port restart.';
+    } else if (incident.category === 'printer_reconnect') {
+      suggestedRecoveryPath =
+        'Execute printer hardware USB cycle restart, audit paper roll sensor limits, and check COM baud rate config parameters.';
+    } else if (incident.category === 'terminal_id_failure') {
+      suggestedRecoveryPath =
+        'Audit kiosk secure credential storage settings, check network route access rules, and reload primary API gateway keys.';
+    } else if (incident.category === 'reset_cycle') {
+      suggestedRecoveryPath =
+        'Inspect power supply voltages, check hardware watchdog board timeout values, and review memory usage allocation trends.';
+    }
+
+    // Build the high-density markdown draft
+    const draftMarkdown = `### RCA INVESTIGATION ASSISTANT REPORT
+**Target Incident:** ${incident.title}
+**Telemetry Confidence Score:** ${score}/100
+
+#### 1. EVIDENCE ANALYSIS BREAKDOWN
+- Matched SLA rules verified: ${confidenceBreakdown.matchedRulesCount}
+- Validated state transitions: ${confidenceBreakdown.matchedStatesCount}
+- Impacted telemetry entries: ${evidenceLinks.length} lines
+
+#### 2. DETERMINISTIC RULES VIOLATED
+${violationsList.length > 0 ? violationsList.map((v) => `- ${v}`).join('\n') : '- No formal SLA rules violated.'}
+
+#### 3. CHRONOLOGICAL PROPAGATION TIMELINE
+${timelinePropagation.length > 0 ? timelinePropagation.map((t) => `- ${t}`).join('\n') : '- No state transitions during incident timeline.'}
+
+#### 4. UNCERTAINTIES & TELEMETRY BOUNDARIES
+${uncertainties.length > 0 ? uncertainties.map((u) => `- ⚠️ ${u}`).join('\n') : '- Telemetry timeline remains continuous with nominal bounds.'}
+
+#### 5. RECOMMENDATIONS & RECOVERY PATHWAY
+- **Recommended Remediation:** ${suggestedRecoveryPath}
+- **Primary Telemetry Coordinates:** [Go to Line ${incident.entryIds.length > 0 ? evidenceLinks[0]?.lineNumber : 0}](file:///view-log#L${incident.entryIds.length > 0 ? evidenceLinks[0]?.lineNumber : 0})
+`;
+
+    return {
+      id: `rca-draft:${incident.id}:${Date.now()}`,
+      incidentId: incident.id,
+      confidence: confidenceBreakdown,
+      reasoningTrace,
+      deterministicViolations: violationsList,
+      timelinePropagation,
+      uncertainties,
+      evidenceLinks,
+      suggestedRecoveryPath,
+      draftMarkdown,
+    };
+  }
+
+  /**
+   * Deterministic Operational Triage prioritizer.
+   * Weighs incident category severity, overlapping rule violations, and propagation depth
+   * to rank outages by urgency, pinpointing the starting line coordinate of the failure.
+   */
+  public static triageIncidents(
+    incidents: Incident[],
+    ruleResults: DomainRuleResult[],
+  ): TriageRank[] {
+    const ranks: TriageRank[] = incidents.map((incident) => {
+      let severityScore = 30; // base score for generic failures
+      const contributingFactors: string[] = [];
+
+      // Category Weighting
+      if (incident.category === 'payment_timeout') {
+        severityScore = 50;
+        contributingFactors.push(
+          'High-priority category: Cashless payment timeout affects merchant transaction path.',
+        );
+      } else if (incident.category === 'terminal_id_failure') {
+        severityScore = 45;
+        contributingFactors.push(
+          'High-priority category: Kiosk terminal identification failure halts boot lifecycle.',
+        );
+      } else if (incident.category === 'reset_cycle') {
+        severityScore = 40;
+        contributingFactors.push(
+          'Medium-priority category: Watchdog cycle restart interrupts active kiosk operations.',
+        );
+      } else if (incident.category === 'heartbeat_dropout') {
+        severityScore = 35;
+        contributingFactors.push(
+          'Medium-priority category: Kiosk network connection dropout disconnects state sync.',
+        );
+      } else if (incident.category === 'printer_reconnect') {
+        severityScore = 25;
+        contributingFactors.push(
+          'Low-priority category: Receipt printer reconnection loop cycles in background.',
+        );
+      }
+
+      // Rule violations overlap checklist
+      const overlappingViolations = ruleResults.filter((rule) => {
+        if (rule.status !== 'violation') return false;
+        return rule.evidenceEntryIds.some((id) => incident.entryIds.includes(id));
+      });
+
+      if (overlappingViolations.length > 0) {
+        const bonus = Math.min(25, overlappingViolations.length * 10);
+        severityScore += bonus;
+        contributingFactors.push(
+          `Outage density: Overlaps with ${overlappingViolations.length} active SLA rule compliance breaches.`,
+        );
+      }
+
+      // Duration multiplier: longer incidents represent higher operational disruption
+      if (incident.durationMs && incident.durationMs > 60000) {
+        severityScore += 10;
+        contributingFactors.push(
+          `Outage duration: Disruption bounds persist longer than 60s (${Math.round(incident.durationMs / 1000)}s).`,
+        );
+      }
+
+      // Cap at 100
+      severityScore = Math.max(0, Math.min(100, severityScore));
+
+      const impactLevel: 'low' | 'medium' | 'high' =
+        severityScore >= 70 ? 'high' : severityScore >= 40 ? 'medium' : 'low';
+
+      // Estimate the starting telemetry line.
+      // Incidents group entries chronologically, so the first entry represents the primary coordinate.
+      const primaryStartingCoordinate = incident.entryIds.length > 0 ? 1 : 0; // mapped relative index, UI will translate to actual line number
+
+      return {
+        incidentId: incident.id,
+        severityScore,
+        impactLevel,
+        primaryStartingCoordinate,
+        propagationDepth: incident.entryIds.length,
+        contributingFactors,
+      };
+    });
+
+    // Sort by severity score descending (highest priority first)
+    return ranks.sort((a, b) => b.severityScore - a.severityScore);
+  }
+
+  /**
+   * Offline recurring pattern suggestions.
+   * Scans log frames to identify repeating warnings, error statements, or connection loops.
+   * Rules are generated strictly as non-deployedSuggestions, requiring manual promotion.
+   */
+  public static detectRecurringPatterns(entries: StructuredLogEntry[]): ObservedPattern[] {
+    const suggestions: ObservedPattern[] = [];
+    const patternsToScan = [
+      {
+        keyword: 'usb.*disconnect|failed to open.*usb',
+        category: 'printer_reconnect' as IncidentCategory,
+        ruleName: 'Printer Port Stability Audit',
+        behavior: 'Receipt printers must maintain USB COM connectivity bounds without dropouts.',
+      },
+      {
+        keyword: 'timeout.*payment|api.*payment.*fail',
+        category: 'payment_timeout' as IncidentCategory,
+        ruleName: 'Merchant Transaction Latency SLA',
+        behavior:
+          'Merchant gateway API responses must return inside cashless processing SLA thresholds.',
+      },
+      {
+        keyword: 'heartbeat.*lost|ping.*timeout',
+        category: 'heartbeat_dropout' as IncidentCategory,
+        ruleName: 'Heartbeat Connectivity Check',
+        behavior: 'Central network status ping must maintain consistent network sync intervals.',
+      },
+      {
+        keyword: 'reboot.*watchdog|system_restart',
+        category: 'reset_cycle' as IncidentCategory,
+        ruleName: 'Watchdog Restart Prevention Monitor',
+        behavior:
+          'Kiosks must run without unhandled runtime exceptions triggering hardware resets.',
+      },
+    ];
+
+    patternsToScan.forEach((scan, index) => {
+      try {
+        const regex = new RegExp(scan.keyword, 'i');
+        const matches = entries.filter((e) => regex.test(e.message || e.raw || ''));
+        if (matches.length >= 3) {
+          const sample = matches[0];
+          suggestions.push({
+            id: `suggested-pattern:${index}:${Date.now()}`,
+            pattern: scan.keyword,
+            occurrencesCount: matches.length,
+            incidentCategory: scan.category,
+            averageConfidence: 85,
+            sampleMessage:
+              sample?.message || sample?.raw || 'Telemetry event matching regex pattern.',
+            sourceFilePaths: sample?.sourceId ? [sample.sourceId] : [],
+            suggestedRuleName: scan.ruleName,
+            suggestedExpectedBehavior: scan.behavior,
+            isApproved: false, // Strict Product Law: Suggestions are NEVER auto-approved or auto-deployed
+          });
+        }
+      } catch {
+        // Skip malformed regex scans
+      }
+    });
+
+    return suggestions;
   }
 }

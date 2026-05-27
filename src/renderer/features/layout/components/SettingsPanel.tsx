@@ -77,6 +77,8 @@ export const SettingsPanel = (): JSX.Element | null => {
   const toggleCompactMode = useFileMonitorStore((state) => state.toggleCompactMode);
   const toggleEnableHeuristicHints = useSettingsStore((state) => state.toggleEnableHeuristicHints);
   const toggleShowIngestionTrace = useSettingsStore((state) => state.toggleShowIngestionTrace);
+  const setFeatureVisibility = useSettingsStore((state) => state.setFeatureVisibility);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
 
   if (!isSettingsOpen) {
     return null;
@@ -129,6 +131,29 @@ export const SettingsPanel = (): JSX.Element | null => {
                 onSelect={setThemeMode}
               />
             </div>
+          </div>
+
+          <div className="h-[1px] bg-line/60" />
+
+          <div className="flex flex-col gap-2">
+            <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider">
+              Feature Visibility
+            </span>
+            <SettingRowCompact
+              label="Timeline"
+              active={featureVisibility.timeline}
+              onToggle={() => setFeatureVisibility('timeline', !featureVisibility.timeline)}
+            />
+            <SettingRowCompact
+              label="AI Evidence"
+              active={featureVisibility.aiEvidence}
+              onToggle={() => setFeatureVisibility('aiEvidence', !featureVisibility.aiEvidence)}
+            />
+            <SettingRowCompact
+              label="Incidents"
+              active={featureVisibility.incidents}
+              onToggle={() => setFeatureVisibility('incidents', !featureVisibility.incidents)}
+            />
           </div>
 
           <div className="h-[1px] bg-line/60" />

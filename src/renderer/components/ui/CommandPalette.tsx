@@ -24,7 +24,6 @@ export const CommandPalette = (): React.JSX.Element => {
     );
   }, [query, commands]);
 
-
   // Autofocus input on mount
   useEffect(() => {
     inputRef.current?.focus();

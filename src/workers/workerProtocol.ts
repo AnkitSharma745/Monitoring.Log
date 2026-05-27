@@ -6,6 +6,11 @@ import type {
   FailureChainCandidate,
   IncidentKnowledgeGraph,
   OperationalDegradationResult,
+  Playbook,
+  StateTransition,
+  RcaDraft,
+  TriageRank,
+  ObservedPattern,
 } from '@shared/contracts/investigations';
 import type {
   IngestedDocument,
@@ -13,7 +18,12 @@ import type {
   TroubleshooterMatch,
   ExtractedRule,
 } from '@shared/contracts/knowledge';
-import type { LogChunk, StructuredLogEntry, VisibleLogWindow, CorrelationSequence } from '@shared/contracts/logs';
+import type {
+  LogChunk,
+  StructuredLogEntry,
+  VisibleLogWindow,
+  CorrelationSequence,
+} from '@shared/contracts/logs';
 import type { SearchQuery, SearchResult } from '@shared/contracts/search';
 
 export type EngineWorkerRequest =
@@ -145,6 +155,34 @@ export type EngineWorkerRequest =
       sourceId: string;
       incidents: Incident[];
       ruleResults: DomainRuleResult[];
+    }
+  // Phase 10 Ecosystem Requests
+  | {
+      type: 'executePlaybook';
+      requestId: string;
+      playbook: Playbook;
+      entries: StructuredLogEntry[];
+      transitions: StateTransition[];
+      ruleResults: DomainRuleResult[];
+    }
+  | {
+      type: 'generateRcaDraft';
+      requestId: string;
+      incident: Incident;
+      entries: StructuredLogEntry[];
+      transitions: StateTransition[];
+      ruleResults: DomainRuleResult[];
+    }
+  | {
+      type: 'triageIncidents';
+      requestId: string;
+      incidents: Incident[];
+      ruleResults: DomainRuleResult[];
+    }
+  | {
+      type: 'detectRecurringPatterns';
+      requestId: string;
+      entries: StructuredLogEntry[];
     };
 
 export type EngineWorkerResponse =
@@ -254,6 +292,27 @@ export type EngineWorkerResponse =
       type: 'calculateDegradationScore:done';
       requestId: string;
       result: OperationalDegradationResult;
+    }
+  // Phase 10 Ecosystem Responses
+  | {
+      type: 'executePlaybook:done';
+      requestId: string;
+      playbook: Playbook;
+    }
+  | {
+      type: 'generateRcaDraft:done';
+      requestId: string;
+      draft: RcaDraft;
+    }
+  | {
+      type: 'triageIncidents:done';
+      requestId: string;
+      ranks: TriageRank[];
+    }
+  | {
+      type: 'detectRecurringPatterns:done';
+      requestId: string;
+      patterns: ObservedPattern[];
     }
   | {
       type: 'error';

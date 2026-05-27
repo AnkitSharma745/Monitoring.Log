@@ -65,7 +65,7 @@ export const LogLine = ({
     return (
       <div
         className={[
-          'grid min-h-6 border-l-2 border-transparent px-3 py-0.5 text-[12px] leading-6',
+          'grid min-h-6 border-l-2 border-transparent px-2 py-0.5 text-[12px] leading-6',
           compactMode ? 'min-h-5 py-0 text-[11px] leading-5' : '',
         ]
           .filter(Boolean)
@@ -105,11 +105,11 @@ export const LogLine = ({
     <div
       data-log-entry-id={entry.id}
       className={[
-        'group grid min-h-6 border-l-2 border-transparent px-3 py-0.5 text-[12px] leading-6 hover:bg-ink-850/70 cursor-pointer select-none transition-colors duration-150',
+        'group grid min-h-6 cursor-pointer select-none border-l-2 border-transparent px-2 py-0.5 text-[12px] leading-6 transition-colors duration-150 hover:bg-ink-850/70',
         compactMode ? 'min-h-5 py-0 text-[11px] leading-5' : '',
         showLineNumbers
-          ? 'grid-cols-[20px_48px_46px_110px_minmax(0,1fr)]'
-          : 'grid-cols-[20px_46px_110px_minmax(0,1fr)]',
+          ? 'grid-cols-[18px_44px_42px_104px_minmax(0,1fr)]'
+          : 'grid-cols-[18px_42px_104px_minmax(0,1fr)]',
         severity === 'error' ? 'border-l-danger/80' : '',
         severity === 'warn' ? 'border-l-warning/80' : '',
         severity === 'info' ? 'border-l-info/50' : '',
@@ -120,7 +120,7 @@ export const LogLine = ({
         .join(' ')}
     >
       {/* 1. Bookmark Margin Star Column */}
-      <div className="flex items-center justify-center">
+      <div className="flex items-center justify-center overflow-hidden">
         <button
           onClick={handleBookmarkToggle}
           className={`transition-all duration-150 focus:outline-none ${
@@ -136,7 +136,7 @@ export const LogLine = ({
 
       {/* 2. Line Number Column */}
       {showLineNumbers && (
-        <span className="select-none pr-4 text-right font-mono text-subtle">
+        <span className="select-none truncate pr-2 text-right font-mono text-subtle">
           {entry.lineNumber ?? ''}
         </span>
       )}
@@ -144,7 +144,7 @@ export const LogLine = ({
       {/* 3. Severity Badge Column */}
       <span
         className={[
-          'mt-0.5 inline-flex h-5 w-11 select-none items-center justify-center rounded border font-mono text-[10px] font-bold',
+          'mt-0.5 inline-flex h-5 w-10 select-none items-center justify-center overflow-hidden rounded border font-mono text-[10px] font-bold',
           severityClass,
         ].join(' ')}
       >
@@ -153,7 +153,7 @@ export const LogLine = ({
 
       {/* 4. Timestamp Column */}
       <span
-        className="truncate pr-3 font-mono text-[11px] text-subtle"
+        className="truncate pr-2 font-mono text-[11px] text-subtle"
         title={entry.timestamp ?? entry.source ?? undefined}
       >
         {isDuplicateTimestamp ? '' : (entry.timestamp ?? entry.source ?? '')}

@@ -61,6 +61,14 @@ export interface ViewerPreferences {
   excludeFilter: string;
   enableHeuristicHints: boolean;
   showIngestionTrace: boolean;
+  featureVisibility: {
+    aiEvidence: boolean;
+    incidents: boolean;
+    telemetry: boolean;
+    diagnostics: boolean;
+    timeline: boolean;
+    advancedBadges: boolean;
+  };
 }
 
 export type ThemeMode = 'light' | 'dark';
@@ -190,6 +198,14 @@ const createDefaultPreferences = (): ViewerPreferences => {
     excludeFilter: '',
     enableHeuristicHints: true,
     showIngestionTrace: true,
+    featureVisibility: {
+      aiEvidence: true,
+      incidents: true,
+      telemetry: true,
+      diagnostics: true,
+      timeline: true,
+      advancedBadges: true,
+    },
   };
 };
 
@@ -204,6 +220,10 @@ const mergePreferencesWithDefaults = (
     severityFilters: {
       ...defaults.severityFilters,
       ...(userPrefs.severityFilters || {}),
+    },
+    featureVisibility: {
+      ...defaults.featureVisibility,
+      ...(userPrefs.featureVisibility || {}),
     },
   };
 };

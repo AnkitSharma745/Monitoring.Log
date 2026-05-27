@@ -89,7 +89,11 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       return {
         type: 'detectIncidents:done',
         requestId: request.requestId,
-        incidents: OperationalCorrelationEngine.detectIncidents(request.sourceId, entries, request.customRules),
+        incidents: OperationalCorrelationEngine.detectIncidents(
+          request.sourceId,
+          entries,
+          request.customRules,
+        ),
       };
     }
 
@@ -98,7 +102,11 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
       return {
         type: 'reconstructStates:done',
         requestId: request.requestId,
-        sequence: OperationalCorrelationEngine.reconstructStates(request.sourceId, entries, request.customRules),
+        sequence: OperationalCorrelationEngine.reconstructStates(
+          request.sourceId,
+          entries,
+          request.customRules,
+        ),
       };
     }
 
@@ -233,6 +241,48 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
         type: 'runInvestigationAssist:done',
         requestId: request.requestId,
         response,
+      };
+    }
+
+    if (request.type === 'executePlaybook') {
+      return {
+        type: 'executePlaybook:done',
+        requestId: request.requestId,
+        playbook: OperationalCorrelationEngine.executePlaybook(
+          request.playbook,
+          request.entries,
+          request.transitions,
+          request.ruleResults,
+        ),
+      };
+    }
+
+    if (request.type === 'generateRcaDraft') {
+      return {
+        type: 'generateRcaDraft:done',
+        requestId: request.requestId,
+        draft: OperationalCorrelationEngine.generateRcaDraft(
+          request.incident,
+          request.entries,
+          request.ruleResults,
+          request.transitions,
+        ),
+      };
+    }
+
+    if (request.type === 'triageIncidents') {
+      return {
+        type: 'triageIncidents:done',
+        requestId: request.requestId,
+        ranks: OperationalCorrelationEngine.triageIncidents(request.incidents, request.ruleResults),
+      };
+    }
+
+    if (request.type === 'detectRecurringPatterns') {
+      return {
+        type: 'detectRecurringPatterns:done',
+        requestId: request.requestId,
+        patterns: OperationalCorrelationEngine.detectRecurringPatterns(request.entries),
       };
     }
 

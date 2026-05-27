@@ -1,5 +1,9 @@
 import type { Incident } from '@shared/contracts/investigations';
-import type { StructuredLogEntry, VisibleLogWindow, CorrelationSequence } from '@shared/contracts/logs';
+import type {
+  StructuredLogEntry,
+  VisibleLogWindow,
+  CorrelationSequence,
+} from '@shared/contracts/logs';
 import type { SearchMatch, SearchQuery, SearchResult } from '@shared/contracts/search';
 
 export interface LogIndexSnapshot {
@@ -495,7 +499,11 @@ export class InMemoryLogIndex {
       .map((s) => s.entry);
   }
 
-  public findSimilarIncidents(_sourceId: string, incidentId: string, incidents: Incident[]): Incident[] {
+  public findSimilarIncidents(
+    _sourceId: string,
+    incidentId: string,
+    incidents: Incident[],
+  ): Incident[] {
     const active = incidents.find((inc) => inc.id === incidentId);
     if (!active) return [];
 

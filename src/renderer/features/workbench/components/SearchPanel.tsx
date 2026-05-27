@@ -38,7 +38,6 @@ export const SearchPanel = (): React.JSX.Element => {
 
     const sourceIds = openTabs.map((t) => t.filePath);
     if (sourceIds.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults([]);
       return;
     }

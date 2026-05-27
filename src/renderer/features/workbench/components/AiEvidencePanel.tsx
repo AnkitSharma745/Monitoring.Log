@@ -18,7 +18,10 @@ import { useAiStore } from '@renderer/stores/aiStore';
 import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { useSettingsStore } from '@renderer/stores/settingsStore';
 import { useViewerStore } from '@renderer/stores/viewerStore';
+import type { StructuredLogEntry } from '@shared/contracts/logs';
 import type React from 'react';
+
+const EMPTY_ARRAY: StructuredLogEntry[] = [];
 
 export const AiEvidencePanel = (): React.JSX.Element => {
   const {
@@ -36,7 +39,7 @@ export const AiEvidencePanel = (): React.JSX.Element => {
 
   const selectedFilePath = useViewerStore((state) => state.selectedFilePath);
   const viewportEntries = useViewerStore((state) =>
-    selectedFilePath ? state.viewportEntriesByPath[selectedFilePath] || [] : [],
+    selectedFilePath ? state.viewportEntriesByPath[selectedFilePath] || EMPTY_ARRAY : EMPTY_ARRAY,
   );
   const scrollToLineRowIndex = useViewerStore((state) => state.scrollToLineRowIndex);
 

@@ -13,6 +13,7 @@ import {
 
 import { Tooltip } from '@renderer/components/ui/Tooltip';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
+import { useSettingsStore } from '@renderer/stores/settingsStore';
 import { useWorkbenchStore, type WorkbenchSidePanel } from '../workbenchStore';
 
 import type { JSX } from 'react';
@@ -46,10 +47,18 @@ export const ActivityBar = (): JSX.Element => {
   const activeSidePanel = useWorkbenchStore((state) => state.activeSidePanel);
   const isSidePanelVisible = useWorkbenchStore((state) => state.isSidePanelVisible);
   const setActiveSidePanel = useWorkbenchStore((state) => state.setActiveSidePanel);
+  const setActiveBottomPanel = useWorkbenchStore((state) => state.setActiveBottomPanel);
   const toggleSettingsPanel = useFileMonitorStore((state) => state.toggleSettingsPanel);
   const watchingFiles = useFileMonitorStore((state) => state.watchingFiles);
   const openTabs = useFileMonitorStore((state) => state.openTabs);
+  const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
   const watcherCount = Object.keys(watchingFiles).length;
+  const visibleActivityItems = activityItems.filter((item) => {
+    if (item.id === 'timeline') return featureVisibility.timeline;
+    if (item.id === 'aiEvidence') return featureVisibility.aiEvidence;
+    if (item.id === 'incidents') return featureVisibility.incidents;
+    return true;
+  });
 
   const getBadgeValue = (id: ActivityItem['id']): number | null => {
     if (id === 'watchers') {
@@ -74,7 +83,7 @@ export const ActivityBar = (): JSX.Element => {
         <button
           type="button"
           className={[
-            'relative flex h-10 w-10 items-center justify-center border-l-2 text-muted transition hover:bg-ink-800 hover:text-readable',
+            'relative flex h-9 w-10 items-center justify-center border-l-2 text-muted transition hover:bg-ink-800 hover:text-readable',
             isActive ? 'border-accent bg-ink-800 text-accent' : 'border-transparent',
           ].join(' ')}
           aria-label={item.label}
@@ -86,12 +95,22 @@ export const ActivityBar = (): JSX.Element => {
 
             if (item.id === 'settings') {
               toggleSettingsPanel();
+              return;
+            }
+
+            if (item.id === 'aiEvidence') {
+              setActiveBottomPanel('aiEvidence');
+              return;
+            }
+
+            if (item.id === 'incidents') {
+              setActiveSidePanel('investigations');
             }
           }}
         >
           <Icon size={18} />
           {badgeValue !== null && badgeValue > 0 && (
-            <span className="absolute right-1 top-1 min-w-4 rounded-full bg-accent px-1 text-[9px] font-bold leading-4 text-white">
+            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 max-w-5 items-center justify-center overflow-hidden rounded bg-accent px-1 text-[9px] font-bold leading-4 text-white">
               {badgeValue > 9 ? '9+' : badgeValue}
             </span>
           )}
@@ -101,13 +120,15 @@ export const ActivityBar = (): JSX.Element => {
   };
 
   return (
-    <nav className="row-[2/4] flex w-11 flex-col items-center border-r border-line bg-ink-900 py-2">
+    <nav className="row-[2/4] flex w-11 flex-col items-center overflow-hidden border-r border-line bg-ink-900 py-1.5">
       {/* Brand logo at top left corner of the activity area */}
-      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded bg-accent/15 text-accent shadow-sm border border-accent/25 transition-transform duration-300 hover:rotate-12">
+      <div className="mb-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded border border-accent/25 bg-accent/15 text-accent shadow-sm">
         <Activity size={16} className="stroke-[2.5]" />
       </div>
 
-      <div className="flex flex-col items-center">{activityItems.map(renderActivityItem)}</div>
+      <div className="flex flex-col items-center">
+        {visibleActivityItems.map(renderActivityItem)}
+      </div>
       <div className="mt-auto flex flex-col items-center border-t border-line pt-1">
         {renderActivityItem(settingsItem)}
       </div>
