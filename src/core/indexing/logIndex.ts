@@ -14,6 +14,10 @@ export interface LogIndexSnapshot {
   indexedAt: string;
 }
 
+const DEFAULT_SEARCH_TIME_BUDGET_MS = 750;
+const MAX_REGEX_PATTERN_LENGTH = 512;
+const MAX_SEARCH_MATCHES = 5000;
+
 export class InMemoryLogIndex {
   private readonly entriesBySource = new Map<string, StructuredLogEntry[]>();
   private readonly sourceGenerations = new Map<string, number>();
@@ -398,7 +402,7 @@ export class InMemoryLogIndex {
     }
   }
 
-  private getSeverityStats(sourceId: string): VisibleLogWindow['severityStats'] {
+  private getSeverityStats(sourceId: string): NonNullable<VisibleLogWindow['severityStats']> {
     const entries = this.entriesBySource.get(sourceId) ?? [];
     const sevMap = this.severityIndices.get(sourceId);
     return {
@@ -416,6 +420,11 @@ export class InMemoryLogIndex {
     const isRegex = query.isRegex ?? false;
     const isCaseSensitive = query.isCaseSensitive ?? false;
     const isWholeWord = query.isWholeWord ?? false;
+    const startedAt = performance.now();
+    const maxDurationMs = Math.max(50, query.maxDurationMs ?? DEFAULT_SEARCH_TIME_BUDGET_MS);
+    let searchedEntryCount = 0;
+    let status: SearchResult['status'] = 'complete';
+    let errorMessage: string | undefined;
 
     // Check search cache (includes toggles)
     const cacheKey = `${query.sourceIds.join(',')}:${text}:${isRegex}:${isCaseSensitive}:${isWholeWord}:${JSON.stringify(query.severityFilters)}:${query.timeRange.start || ''}-${query.timeRange.end || ''}`;
@@ -435,26 +444,33 @@ export class InMemoryLogIndex {
     // Compile regex if searching
     let regex: RegExp | null = null;
     if (text) {
-      try {
-        let pattern = text;
-        if (!isRegex) {
-          pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        }
-        if (isWholeWord) {
-          pattern = `\\b${pattern}\\b`;
-        }
-        // Always make it global so we can find multiple match columns on the line
-        const flags = isCaseSensitive ? 'g' : 'gi';
-        regex = new RegExp(pattern, flags);
-      } catch (err) {
-        console.error('Regex compilation error in search:', err);
+      const compiled = compileSearchRegex(text, {
+        isRegex,
+        isCaseSensitive,
+        isWholeWord,
+      });
+      regex = compiled.regex;
+      errorMessage = compiled.errorMessage;
+
+      if (!regex && compiled.errorMessage) {
+        return createSearchResult(query, [], {
+          searchedEntryCount,
+          status: 'invalid',
+          errorMessage: compiled.errorMessage,
+        });
       }
     }
 
-    for (const sourceId of query.sourceIds) {
+    sourceLoop: for (const sourceId of query.sourceIds) {
       const entries = this.entriesBySource.get(sourceId) ?? [];
 
       for (const entry of entries) {
+        searchedEntryCount += 1;
+        if (performance.now() - startedAt > maxDurationMs) {
+          status = 'partial';
+          break sourceLoop;
+        }
+
         if (!query.severityFilters[entry.severity]) {
           continue;
         }
@@ -507,9 +523,9 @@ export class InMemoryLogIndex {
           raw: entry.raw,
         });
 
-        // Limit results check (but still cache all matches up to 5000 for scroll virtualization performance)
-        if (matches.length >= 5000) {
-          break;
+        if (matches.length >= MAX_SEARCH_MATCHES) {
+          status = 'partial';
+          break sourceLoop;
         }
       }
     }
@@ -523,7 +539,11 @@ export class InMemoryLogIndex {
       timestamp: Date.now(),
     });
 
-    return createSearchResult(query, matches.slice(0, query.limit));
+    return createSearchResult(query, matches.slice(0, query.limit), {
+      searchedEntryCount,
+      status,
+      errorMessage,
+    });
   }
 
   /**
@@ -775,25 +795,78 @@ const isInsideTimeRange = (
   return timestampEpochMs >= start && timestampEpochMs <= end;
 };
 
-const createSearchResult = (query: SearchQuery, matches: SearchMatch[]): SearchResult => {
-  return {
+const createSearchResult = (
+  query: SearchQuery,
+  matches: SearchMatch[],
+  options: {
+    searchedEntryCount?: number;
+    status?: SearchResult['status'];
+    errorMessage?: string | undefined;
+  } = {},
+): SearchResult => {
+  const result: SearchResult = {
     queryId: query.id,
     sourceIds: query.sourceIds,
     totalMatches: matches.length,
     matches,
+    status: options.status ?? 'complete',
     completedAt: new Date().toISOString(),
   };
+
+  if (options.searchedEntryCount !== undefined) {
+    result.searchedEntryCount = options.searchedEntryCount;
+  }
+
+  if (options.errorMessage) {
+    result.errorMessage = options.errorMessage;
+  }
+
+  return result;
+};
+
+const compileSearchRegex = (
+  text: string,
+  options: {
+    isRegex: boolean;
+    isCaseSensitive: boolean;
+    isWholeWord: boolean;
+  },
+): { regex: RegExp | null; errorMessage?: string } => {
+  try {
+    let pattern = text;
+    if (options.isRegex && pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+      return {
+        regex: null,
+        errorMessage: `Regex pattern is too long (${pattern.length}/${MAX_REGEX_PATTERN_LENGTH}).`,
+      };
+    }
+
+    if (!options.isRegex) {
+      pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    if (options.isWholeWord) {
+      pattern = `\\b${pattern}\\b`;
+    }
+
+    const flags = options.isCaseSensitive ? 'g' : 'gi';
+    return { regex: new RegExp(pattern, flags) };
+  } catch (err) {
+    return {
+      regex: null,
+      errorMessage: err instanceof Error ? err.message : 'Invalid regex pattern.',
+    };
+  }
 };
 
 const createProjectionSignature = (options: {
-  severityFilters?: Record<string, boolean>;
-  searchQuery?: string;
-  filterToMatches?: boolean;
-  isRegex?: boolean;
-  isCaseSensitive?: boolean;
-  isWholeWord?: boolean;
-  includeFilter?: string;
-  excludeFilter?: string;
+  severityFilters?: Record<string, boolean> | undefined;
+  searchQuery?: string | undefined;
+  filterToMatches?: boolean | undefined;
+  isRegex?: boolean | undefined;
+  isCaseSensitive?: boolean | undefined;
+  isWholeWord?: boolean | undefined;
+  includeFilter?: string | undefined;
+  excludeFilter?: string | undefined;
 }): string => {
   const severityFilters = options.severityFilters ?? {};
   const severitySignature = Object.keys(severityFilters)

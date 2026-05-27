@@ -1,4 +1,12 @@
-import { Search, History, FileText, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import {
+  Search,
+  History,
+  FileText,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  BookmarkPlus,
+} from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { getEngineWorkerClient } from '@renderer/services/workerClient';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
@@ -16,15 +24,23 @@ export const SearchPanel = (): React.JSX.Element => {
   const isWholeWord = useSearchStore((state) => state.isWholeWord);
   const setSearchOptions = useSearchStore((state) => state.setSearchOptions);
   const searchHistory = useSearchStore((state) => state.searchHistory);
+  const savedFilters = useSearchStore((state) => state.savedFilters);
   const saveCurrentSearch = useSearchStore((state) => state.saveCurrentSearch);
+  const saveCurrentFilter = useSearchStore((state) => state.saveCurrentFilter);
+  const applySavedFilter = useSearchStore((state) => state.applySavedFilter);
   const clearSearchHistory = useSearchStore((state) => state.clearSearchHistory);
+  const isSearching = useSearchStore((state) => state.isSearching);
+  const setSearchRunning = useSearchStore((state) => state.setSearchRunning);
+  const setSearchError = useSearchStore((state) => state.setSearchError);
+  const searchError = useSearchStore((state) => state.searchError);
+  const registerResult = useSearchStore((state) => state.registerResult);
+  const lastSearchStatus = useSearchStore((state) => state.lastSearchStatus);
 
   const openTabs = useWorkspaceStore((state) => state.openTabs);
   const selectFile = useFileMonitorStore((state) => state.selectFile);
   const scrollToLineRowIndex = useViewerStore((state) => state.scrollToLineRowIndex);
 
   const [results, setResults] = useState<SearchMatch[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({});
 
@@ -33,19 +49,22 @@ export const SearchPanel = (): React.JSX.Element => {
     if (!searchQuery.trim()) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults([]);
+      setSearchRunning(false);
       return;
     }
 
     const sourceIds = openTabs.map((t) => t.filePath);
     if (sourceIds.length === 0) {
       setResults([]);
+      setSearchRunning(false);
       return;
     }
 
-    setIsSearching(true);
+    setSearchRunning(true);
     const workerClient = getEngineWorkerClient();
     const queryId = `search-panel-${Date.now()}`;
     const severityFilters = { error: true, warn: true, info: true, debug: true, neutral: true };
+    let cancelled = false;
 
     const timer = setTimeout(() => {
       workerClient
@@ -63,24 +82,52 @@ export const SearchPanel = (): React.JSX.Element => {
             isRegex,
             isCaseSensitive,
             isWholeWord,
+            maxDurationMs: 750,
           },
         })
         .then((res) => {
+          if (cancelled) {
+            return;
+          }
+
           if (res.type === 'search:done' && res.result.queryId === queryId) {
+            registerResult(res.result);
             setResults(res.result.matches);
             saveCurrentSearch();
+          } else if (res.type === 'error') {
+            setSearchError(res.message);
           }
         })
         .catch((err) => {
+          if (cancelled) {
+            return;
+          }
+
           console.error('Workspace search failed:', err);
+          setSearchError(err instanceof Error ? err.message : 'Workspace search failed.');
         })
         .finally(() => {
-          setIsSearching(false);
+          if (!cancelled) {
+            setSearchRunning(false);
+          }
         });
     }, 150); // Debounce typing slightly
 
-    return () => clearTimeout(timer);
-  }, [searchQuery, isRegex, isCaseSensitive, isWholeWord, openTabs]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    searchQuery,
+    isRegex,
+    isCaseSensitive,
+    isWholeWord,
+    openTabs,
+    registerResult,
+    saveCurrentSearch,
+    setSearchError,
+    setSearchRunning,
+  ]);
 
   // Group matches by file
   const resultsByFile = useMemo(() => {
@@ -261,6 +308,28 @@ export const SearchPanel = (): React.JSX.Element => {
               .*
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => saveCurrentFilter()}
+            title="Save current search and filters"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-line bg-ink-900 text-subtle transition hover:border-accent/40 hover:text-readable"
+          >
+            <BookmarkPlus size={13} />
+          </button>
+        </div>
+
+        <div className="no-scrollbar flex gap-1 overflow-x-auto">
+          {savedFilters.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              onClick={() => applySavedFilter(filter.id)}
+              className="h-6 max-w-32 shrink-0 truncate rounded border border-line bg-ink-900 px-2 font-mono text-[10px] text-muted transition hover:border-accent/40 hover:text-readable"
+              title={filter.name}
+            >
+              {filter.name}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -271,6 +340,8 @@ export const SearchPanel = (): React.JSX.Element => {
             <Loader2 size={16} className="animate-spin text-accent" />
             <span className="text-[10px]">Searching logs off-thread...</span>
           </div>
+        ) : searchError ? (
+          <div className="text-center text-danger text-[10px] py-10 px-3">{searchError}</div>
         ) : searchQuery && results.length === 0 ? (
           <div className="text-center text-subtle text-[10px] py-10">
             No matches found in open workspace files.
@@ -283,6 +354,7 @@ export const SearchPanel = (): React.JSX.Element => {
           <div className="space-y-1.5">
             <div className="text-[9px] text-subtle font-bold px-1 uppercase mb-2">
               Found {results.length} matches in {Object.keys(resultsByFile).length} files
+              {lastSearchStatus === 'partial' ? ' (partial)' : ''}
             </div>
 
             {Object.entries(resultsByFile).map(([filePath, matches]) => {
