@@ -3,6 +3,7 @@ import { InvestigationAssistantEngine } from '@core/ai/investigationAssistantEng
 
 import { InMemoryLogIndex } from '@core/indexing/logIndex';
 import { OperationalCorrelationEngine } from '@core/investigation/correlationEngine';
+import { InvestigationEntityPipeline } from '@core/investigation/investigationEntityPipeline';
 import { DocumentEngine } from '@core/knowledge/documentEngine';
 import { parseChunk } from '@core/parsing/parserEngine';
 import type { EngineWorkerRequest, EngineWorkerResponse } from './workerProtocol';
@@ -149,6 +150,21 @@ export const handleEngineWorkerRequest = (request: EngineWorkerRequest): EngineW
         type: 'validateDomainRules:done',
         requestId: request.requestId,
         results: OperationalCorrelationEngine.validateDomainRules(
+          request.sourceId,
+          entries,
+          customRules,
+        ),
+      };
+    }
+
+    if (request.type === 'buildInvestigationEntities') {
+      const entries = logIndex.getEntries(request.sourceId);
+      const docRules = ingestedDocuments.flatMap((d) => d.rules);
+      const customRules = [...(request.customRules || []), ...docRules];
+      return {
+        type: 'buildInvestigationEntities:done',
+        requestId: request.requestId,
+        entitySet: InvestigationEntityPipeline.buildEntitySet(
           request.sourceId,
           entries,
           customRules,

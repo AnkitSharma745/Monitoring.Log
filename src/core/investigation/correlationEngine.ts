@@ -737,6 +737,23 @@ export class OperationalCorrelationEngine {
       0.65 + group.length * 0.08 + (severity === 'error' ? 0.1 : 0),
       0.99,
     );
+    const evidenceRefs = group.map((entry) => ({
+      id: `evidence:${entry.sourceId}:${entry.id}`,
+      sourceId: entry.sourceId,
+      filePath: entry.filePath,
+      chunkId: entry.chunkId,
+      entryId: entry.id,
+      lineNumber: entry.lineNumber,
+      byteStart: entry.byteStart,
+      byteEnd: entry.byteEnd,
+      timestamp: entry.timestamp,
+      timestampEpochMs: entry.timestampEpochMs,
+      severity: entry.severity,
+      source: entry.source,
+      message: entry.message,
+      raw: entry.raw,
+      orderingKey: entry.timestampEpochMs ?? entry.lineNumber,
+    }));
 
     let desc = '';
     if (category === 'payment_timeout') {
@@ -768,6 +785,27 @@ export class OperationalCorrelationEngine {
       timestampEnd: end,
       durationMs,
       confidence,
+      primaryLineNumber: first.lineNumber,
+      evidenceRefs,
+      evidenceSummary: {
+        totalFrames: group.length,
+        retainedFrames: evidenceRefs.length,
+        truncated: false,
+        lineStart: first.lineNumber,
+        lineEnd: last.lineNumber,
+      },
+      explanation: {
+        summary: `${title} matched ${group.length} evidence frames between lines ${first.lineNumber} and ${last.lineNumber}.`,
+        ruleIds: [`incident-detector:${category}`],
+        matchedSignals: [category, severity],
+        evidenceLineNumbers: evidenceRefs.map((ref) => ref.lineNumber),
+        confidenceFactors: [
+          `Grouped ${group.length} related log frames.`,
+          `Detector confidence ${(confidence * 100).toFixed(0)}%.`,
+        ],
+        limitations: ['Incident detection is deterministic and evidence-scoped.'],
+      },
+      relatedEntityIds: [],
     };
   }
 
@@ -1356,9 +1394,8 @@ ${uncertainties.length > 0 ? uncertainties.map((u) => `- ⚠️ ${u}`).join('\n'
       const impactLevel: 'low' | 'medium' | 'high' =
         severityScore >= 70 ? 'high' : severityScore >= 40 ? 'medium' : 'low';
 
-      // Estimate the starting telemetry line.
-      // Incidents group entries chronologically, so the first entry represents the primary coordinate.
-      const primaryStartingCoordinate = incident.entryIds.length > 0 ? 1 : 0; // mapped relative index, UI will translate to actual line number
+      const primaryStartingCoordinate =
+        incident.primaryLineNumber ?? incident.evidenceRefs?.[0]?.lineNumber ?? 0;
 
       return {
         incidentId: incident.id,

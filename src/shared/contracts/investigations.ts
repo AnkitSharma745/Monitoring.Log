@@ -1,4 +1,5 @@
 import type { ExtractedRule } from './knowledge';
+import type { LogSeverity } from './logs';
 
 export type InvestigationMode =
   | 'liveMonitoring'
@@ -9,6 +10,15 @@ export type InvestigationMode =
 
 export type InvestigationStatus = 'active' | 'paused' | 'closed';
 
+export type InvestigationEntityType =
+  | 'incident'
+  | 'operationalSequence'
+  | 'evidenceCluster'
+  | 'operationalState'
+  | 'ruleViolation'
+  | 'correlationGroup'
+  | 'recoveryFlow';
+
 export type IncidentCategory =
   | 'payment_timeout'
   | 'printer_reconnect'
@@ -17,6 +27,54 @@ export type IncidentCategory =
   | 'reset_cycle'
   | 'api_retry_storm'
   | 'generic_failure';
+
+export type OperationalPatternCategory =
+  | IncidentCategory
+  | 'retry_storm'
+  | 'timeout_chain'
+  | 'reset_loop'
+  | 'heartbeat_instability'
+  | 'operational_degradation'
+  | 'recovery_flow'
+  | 'payment_failure'
+  | 'state_transition'
+  | 'rule_violation'
+  | 'correlation';
+
+export interface EvidenceReference {
+  id: string;
+  sourceId: string;
+  filePath: string;
+  chunkId: string;
+  entryId: string;
+  lineNumber: number;
+  byteStart: number;
+  byteEnd: number;
+  timestamp: string | null;
+  timestampEpochMs: number | null;
+  severity: LogSeverity;
+  source: string | null;
+  message: string;
+  raw: string;
+  orderingKey: number;
+}
+
+export interface EntityExplainability {
+  summary: string;
+  ruleIds: string[];
+  matchedSignals: string[];
+  evidenceLineNumbers: number[];
+  confidenceFactors: string[];
+  limitations: string[];
+}
+
+export interface EntityEvidenceSummary {
+  totalFrames: number;
+  retainedFrames: number;
+  truncated: boolean;
+  lineStart: number | null;
+  lineEnd: number | null;
+}
 
 export interface Incident {
   id: string;
@@ -30,6 +88,11 @@ export interface Incident {
   timestampEnd: string | null;
   durationMs: number | null;
   confidence: number;
+  primaryLineNumber?: number | null;
+  evidenceRefs?: EvidenceReference[];
+  evidenceSummary?: EntityEvidenceSummary;
+  explanation?: EntityExplainability;
+  relatedEntityIds?: string[];
 }
 
 export interface StateTransition {
@@ -255,4 +318,128 @@ export interface InvestigationAuditEntry {
   targetId: string;
   details: string;
   evidenceLinks: Array<{ entryId: string; lineNumber: number }>;
+}
+
+export interface InvestigationEntityBase {
+  id: string;
+  type: InvestigationEntityType;
+  sourceId: string;
+  title: string;
+  description: string;
+  category: OperationalPatternCategory;
+  severity: LogSeverity;
+  confidence: number;
+  timestampStart: string | null;
+  timestampEnd: string | null;
+  durationMs: number | null;
+  evidenceRefs: EvidenceReference[];
+  evidenceSummary: EntityEvidenceSummary;
+  explanation: EntityExplainability;
+  createdAt: string;
+}
+
+export interface OperationalSequence extends InvestigationEntityBase {
+  type: 'operationalSequence';
+  sequenceKind:
+    | 'retry_storm'
+    | 'timeout_chain'
+    | 'reset_loop'
+    | 'heartbeat_instability'
+    | 'payment_flow'
+    | 'state_transition'
+    | 'failure_chain';
+  orderedEntryIds: string[];
+  transitionLabels: string[];
+  relatedIncidentIds: string[];
+}
+
+export interface EvidenceCluster extends InvestigationEntityBase {
+  type: 'evidenceCluster';
+  clusterKind: 'temporal' | 'correlation' | 'pattern' | 'rule';
+  clusterKey: string;
+  entryCount: number;
+  dominantSources: string[];
+  relatedIncidentIds: string[];
+}
+
+export interface OperationalState extends InvestigationEntityBase {
+  type: 'operationalState';
+  stateName: string;
+  previousState: string | null;
+  nextState: string | null;
+  transitionEntryId: string;
+  lineNumber: number;
+}
+
+export interface RuleViolation extends InvestigationEntityBase {
+  type: 'ruleViolation';
+  ruleId: string;
+  ruleName: string;
+  ruleCategory: DomainRuleResult['category'];
+  expectedBehavior: string;
+  status: 'violation';
+}
+
+export interface CorrelationGroup extends InvestigationEntityBase {
+  type: 'correlationGroup';
+  correlationKind: 'correlationId' | 'paymentId' | 'sessionId' | 'hardwareId';
+  correlationKey: string;
+  entryIds: string[];
+  relatedEntityIds: string[];
+}
+
+export interface RecoveryFlow extends InvestigationEntityBase {
+  type: 'recoveryFlow';
+  recoveryKind: 'automatic' | 'manual' | 'unknown';
+  status: 'recovered' | 'failed' | 'partial' | 'unknown';
+  startLineNumber: number;
+  endLineNumber: number | null;
+}
+
+export interface OperationalTimelineEvent {
+  id: string;
+  sourceId: string;
+  entityId: string;
+  entityType: InvestigationEntityType;
+  title: string;
+  timestamp: string | null;
+  timestampEpochMs: number | null;
+  lineNumber: number | null;
+  severity: LogSeverity;
+  orderingKey: number;
+  evidenceRefs: EvidenceReference[];
+}
+
+export interface InvestigationEntityProcessingStats {
+  entriesAnalyzed: number;
+  entitiesDetected: number;
+  evidenceRefsRetained: number;
+  processingDurationMs: number;
+  generatedAt: string;
+}
+
+export interface InvestigationEntitySet {
+  sourceId: string;
+  generatedAt: string;
+  incidents: Incident[];
+  stateSequence: StateTransitionSequence;
+  ruleResults: DomainRuleResult[];
+  failureChains: FailureChainCandidate[];
+  incidentGraph: IncidentKnowledgeGraph;
+  degradation: OperationalDegradationResult;
+  operationalSequences: OperationalSequence[];
+  evidenceClusters: EvidenceCluster[];
+  operationalStates: OperationalState[];
+  ruleViolations: RuleViolation[];
+  correlationGroups: CorrelationGroup[];
+  recoveryFlows: RecoveryFlow[];
+  timelineEvents: OperationalTimelineEvent[];
+  processingStats: InvestigationEntityProcessingStats;
+  explanation: EntityExplainability;
+}
+
+export interface InvestigationEntityBuildStatus {
+  state: 'idle' | 'building' | 'ready' | 'error';
+  message: string;
+  updatedAt: string;
 }

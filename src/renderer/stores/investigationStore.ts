@@ -21,6 +21,8 @@ import type {
   StateTransition,
   DomainRuleResult,
   Incident,
+  InvestigationEntitySet,
+  InvestigationEntityBuildStatus,
 } from '@shared/contracts/investigations';
 import type { ExtractedRule } from '@shared/contracts/knowledge';
 import type { StructuredLogEntry } from '@shared/contracts/logs';
@@ -38,6 +40,8 @@ interface InvestigationStoreState {
   activeRcaDrafts: Record<string, RcaDraft>;
   triageRanks: TriageRank[];
   auditLog: InvestigationAuditEntry[];
+  entitySetsBySourceId: Record<string, InvestigationEntitySet>;
+  entityBuildStatusBySourceId: Record<string, InvestigationEntityBuildStatus>;
 
   // Actions
   setActiveInvestigation: (investigationId: string | null) => void;
@@ -88,6 +92,11 @@ interface InvestigationStoreState {
   ) => Promise<void>;
   triageIncidentsAction: (incidents: Incident[], ruleResults: DomainRuleResult[]) => Promise<void>;
   detectRecurringPatternsAction: (entries: StructuredLogEntry[]) => Promise<void>;
+  buildInvestigationEntitiesAction: (
+    sourceId: string,
+    customRules?: ExtractedRule[],
+  ) => Promise<InvestigationEntitySet | null>;
+  clearInvestigationEntities: (sourceId: string) => void;
   addAuditEntry: (
     action: 'rule_create' | 'rule_delete' | 'playbook_run' | 'pattern_promote' | 'case_export',
     targetId: string,
@@ -241,6 +250,8 @@ export const useInvestigationStore = create<InvestigationStoreState>((set, get) 
   activeRcaDrafts: {},
   triageRanks: [],
   auditLog: [],
+  entitySetsBySourceId: {},
+  entityBuildStatusBySourceId: {},
 
   setActiveInvestigation: (investigationId): void => {
     set((state) => {
@@ -1058,6 +1069,86 @@ export const useInvestigationStore = create<InvestigationStoreState>((set, get) 
     } catch (e) {
       console.error('Failed to detect recurring patterns:', e);
     }
+  },
+
+  buildInvestigationEntitiesAction: async (
+    sourceId,
+    customRules,
+  ): Promise<InvestigationEntitySet | null> => {
+    const startedAt = new Date().toISOString();
+    set((state) => ({
+      entityBuildStatusBySourceId: {
+        ...state.entityBuildStatusBySourceId,
+        [sourceId]: {
+          state: 'building',
+          message: 'Building deterministic investigation entities...',
+          updatedAt: startedAt,
+        },
+      },
+    }));
+
+    try {
+      const workerClient = getEngineWorkerClient();
+      const request =
+        customRules && customRules.length > 0
+          ? {
+              type: 'buildInvestigationEntities' as const,
+              requestId: `entities:${sourceId}:${Date.now()}`,
+              sourceId,
+              customRules,
+            }
+          : {
+              type: 'buildInvestigationEntities' as const,
+              requestId: `entities:${sourceId}:${Date.now()}`,
+              sourceId,
+            };
+      const response = await workerClient.request(request);
+
+      if (response.type === 'buildInvestigationEntities:done') {
+        const entitySet = response.entitySet;
+        set((state) => ({
+          entitySetsBySourceId: {
+            ...state.entitySetsBySourceId,
+            [sourceId]: entitySet,
+          },
+          entityBuildStatusBySourceId: {
+            ...state.entityBuildStatusBySourceId,
+            [sourceId]: {
+              state: 'ready',
+              message: `Built ${entitySet.processingStats.entitiesDetected} deterministic entities from ${entitySet.processingStats.entriesAnalyzed} entries.`,
+              updatedAt: entitySet.generatedAt,
+            },
+          },
+        }));
+        return entitySet;
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to build investigation entities.';
+      set((state) => ({
+        entityBuildStatusBySourceId: {
+          ...state.entityBuildStatusBySourceId,
+          [sourceId]: {
+            state: 'error',
+            message,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      }));
+      console.error('Failed to build investigation entities:', error);
+    }
+
+    return null;
+  },
+
+  clearInvestigationEntities: (sourceId): void => {
+    set((state) => {
+      const entitySetsBySourceId = { ...state.entitySetsBySourceId };
+      const entityBuildStatusBySourceId = { ...state.entityBuildStatusBySourceId };
+      delete entitySetsBySourceId[sourceId];
+      delete entityBuildStatusBySourceId[sourceId];
+      return { entitySetsBySourceId, entityBuildStatusBySourceId };
+    });
   },
 
   addAuditEntry: (action, targetId, details, evidenceLinks): void => {
