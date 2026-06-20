@@ -19,7 +19,7 @@ import { useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
 import { Button } from '@renderer/components/ui/Button';
 import { SHORTCUTS } from '@renderer/features/shortcuts/shortcutDefinitions';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
-import { useSettingsStore, type DensityMode } from '@renderer/stores/settingsStore';
+import { useSettingsStore, type DensityMode, type ThemePreference } from '@renderer/stores/settingsStore';
 
 type AdvancedSettingsSection =
   | 'general'
@@ -67,10 +67,10 @@ export const SettingsPanel = (): JSX.Element | null => {
   const isSettingsOpen = useSettingsStore((state) => state.isSettingsOpen);
   const closeSettingsPanel = useSettingsStore((state) => state.closeSettingsPanel);
   const openAdvancedSettings = useSettingsStore((state) => state.openAdvancedSettings);
-  const themeMode = useSettingsStore((state) => state.theme);
-  const setThemeMode = useSettingsStore((state) => state.setTheme);
   const density = useSettingsStore((state) => state.density);
   const setDensity = useSettingsStore((state) => state.setDensity);
+  const theme = useSettingsStore((state) => state.theme);
+  const setTheme = useSettingsStore((state) => state.setTheme);
 
   const isSidebarVisible = useFileMonitorStore((state) => state.isSidebarVisible);
   const isExplorerVisible = useFileMonitorStore((state) => state.isExplorerVisible);
@@ -101,8 +101,8 @@ export const SettingsPanel = (): JSX.Element | null => {
         aria-label="Close settings"
         onClick={closeSettingsPanel}
       />
-      <aside className="absolute bottom-10 left-14 z-50 flex w-72 flex-col gap-3 rounded-lg border border-line bg-panel p-3.5 shadow-panel animate-in fade-in slide-in-from-bottom-2 duration-150">
-        <header className="flex items-center justify-between border-b border-line/60 pb-2">
+      <aside className="absolute bottom-10 left-14 z-50 flex max-h-[calc(100vh-80px)] w-72 flex-col gap-3 rounded-lg border border-line bg-panel p-3.5 shadow-panel animate-in fade-in slide-in-from-bottom-2 duration-150">
+        <header className="flex shrink-0 items-center justify-between border-b border-line/60 pb-2">
           <div className="flex items-center gap-2">
             <Settings2 size={15} className="text-accent animate-spin-hover" />
             <div>
@@ -121,25 +121,12 @@ export const SettingsPanel = (): JSX.Element | null => {
           </Button>
         </header>
 
-        <div className="flex flex-col gap-2.5">
+        <div className="flex flex-col gap-2.5 overflow-y-auto pr-1">
           <div>
             <span className="block text-[9px] font-semibold text-muted uppercase tracking-wider mb-1.5">
               Appearance
             </span>
-            <div className="grid grid-cols-2 gap-1.5">
-              <ThemeButton
-                label="Light"
-                mode="light"
-                activeMode={themeMode}
-                onSelect={setThemeMode}
-              />
-              <ThemeButton
-                label="Dark"
-                mode="dark"
-                activeMode={themeMode}
-                onSelect={setThemeMode}
-              />
-            </div>
+            <ThemeSelector theme={theme} onSelect={setTheme} />
           </div>
 
           <div className="h-[1px] bg-line/60" />
@@ -282,6 +269,8 @@ export const AdvancedSettingsPanel = (): JSX.Element => {
   const searchHistory = useFileMonitorStore((state) => state.searchHistory);
 
   const closeAdvancedSettings = useSettingsStore((state) => state.closeAdvancedSettings);
+  const themeMode = useSettingsStore((state) => state.theme);
+  const setThemeMode = useSettingsStore((state) => state.setTheme);
   const density = useSettingsStore((state) => state.density);
   const setDensity = useSettingsStore((state) => state.setDensity);
   const featureVisibility = useSettingsStore((state) => state.preferences.featureVisibility);
@@ -380,20 +369,43 @@ export const AdvancedSettingsPanel = (): JSX.Element => {
               description="Application-level controls and runtime configuration."
             >
               <div className="flex flex-col gap-4">
-                <p className="text-xs text-muted leading-relaxed">
-                  Perform a hard reload of the desktop runtime system to flush memory pools and
-                  reset process bindings.
-                </p>
-                <Button
-                  variant="secondary"
-                  className="w-44 justify-start text-xs h-8"
-                  onClick={() => {
-                    void reloadApplicationWindow();
-                  }}
-                >
-                  <RefreshCw size={13} className="mr-2 animate-spin-hover" />
-                  Reload Window
-                </Button>
+                <div>
+                  <h4 className="text-xs font-semibold text-readable mb-2">Appearance</h4>
+                  <div className="grid grid-cols-2 gap-2 max-w-[200px]">
+                    <ThemeButton
+                      label="Light"
+                      mode="light"
+                      activeMode={themeMode}
+                      onSelect={setThemeMode}
+                    />
+                    <ThemeButton
+                      label="Dark"
+                      mode="dark"
+                      activeMode={themeMode}
+                      onSelect={setThemeMode}
+                    />
+                  </div>
+                </div>
+
+                <div className="h-[1px] bg-line/60" />
+
+                <div>
+                  <h4 className="text-xs font-semibold text-readable mb-2">System</h4>
+                  <p className="text-xs text-muted leading-relaxed mb-3">
+                    Perform a hard reload of the desktop runtime system to flush memory pools and
+                    reset process bindings.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    className="w-44 justify-start text-xs h-8"
+                    onClick={() => {
+                      void reloadApplicationWindow();
+                    }}
+                  >
+                    <RefreshCw size={13} className="mr-2 animate-spin-hover" />
+                    Reload Window
+                  </Button>
+                </div>
               </div>
             </SettingsWorkspaceSection>
           )}
@@ -795,6 +807,44 @@ const DensitySelector = ({ density, onSelect }: DensitySelectorProps): JSX.Eleme
           {option.label}
         </button>
       ))}
+    </div>
+  );
+};
+
+interface ThemeSelectorProps {
+  theme: ThemePreference;
+  onSelect: (theme: ThemePreference) => void;
+}
+
+const ThemeSelector = ({ theme, onSelect }: ThemeSelectorProps): JSX.Element => {
+  return (
+    <div className="grid grid-cols-2 overflow-hidden rounded border border-line bg-ink-950">
+      <button
+        type="button"
+        className={[
+          'flex h-7 items-center justify-center gap-1.5 border-r border-line px-2 text-[11px] font-semibold transition last:border-r-0 cursor-pointer outline-none',
+          theme === 'light'
+            ? 'bg-accent-soft text-accent'
+            : 'text-muted hover:bg-ink-900 hover:text-readable',
+        ].join(' ')}
+        onClick={() => onSelect('light')}
+      >
+        <Sun size={12} />
+        Light
+      </button>
+      <button
+        type="button"
+        className={[
+          'flex h-7 items-center justify-center gap-1.5 border-r border-line px-2 text-[11px] font-semibold transition last:border-r-0 cursor-pointer outline-none',
+          theme === 'dark'
+            ? 'bg-accent-soft text-accent'
+            : 'text-muted hover:bg-ink-900 hover:text-readable',
+        ].join(' ')}
+        onClick={() => onSelect('dark')}
+      >
+        <Moon size={12} />
+        Dark
+      </button>
     </div>
   );
 };
