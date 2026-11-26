@@ -11,6 +11,7 @@ import type {
   RcaDraft,
   TriageRank,
   ObservedPattern,
+  InvestigationEntitySet,
 } from '@shared/contracts/investigations';
 import type {
   IngestedDocument,
@@ -113,6 +114,12 @@ export type EngineWorkerRequest =
     }
   | {
       type: 'validateDomainRules';
+      requestId: string;
+      sourceId: string;
+      customRules?: ExtractedRule[];
+    }
+  | {
+      type: 'buildInvestigationEntities';
       requestId: string;
       sourceId: string;
       customRules?: ExtractedRule[];
@@ -272,6 +279,11 @@ export type EngineWorkerResponse =
       type: 'validateDomainRules:done';
       requestId: string;
       results: DomainRuleResult[];
+    }
+  | {
+      type: 'buildInvestigationEntities:done';
+      requestId: string;
+      entitySet: InvestigationEntitySet;
     }
   // Phase 5 Ingestion and Knowledge retrieval responses
   | {

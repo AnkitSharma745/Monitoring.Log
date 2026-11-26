@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, type JSX } from 'react';
-import { getEngineWorkerClient } from '@renderer/services/workerClient';
 import { useFileMonitorStore } from '@renderer/stores/fileMonitorStore';
 import { useInvestigationStore } from '@renderer/stores/investigationStore';
 import { useSearchStore } from '@renderer/stores/searchStore';
@@ -78,6 +77,15 @@ export const InvestigationsPanel = (): JSX.Element => {
   const detectRecurringPatternsAction = useInvestigationStore(
     (state) => state.detectRecurringPatternsAction,
   );
+  const buildInvestigationEntitiesAction = useInvestigationStore(
+    (state) => state.buildInvestigationEntitiesAction,
+  );
+  const investigationEntitySet = useInvestigationStore((state) =>
+    selectedFilePath ? (state.entitySetsBySourceId[selectedFilePath] ?? null) : null,
+  );
+  const entityBuildStatus = useInvestigationStore((state) =>
+    selectedFilePath ? (state.entityBuildStatusBySourceId[selectedFilePath] ?? null) : null,
+  );
 
   // Panel active tabs
   const [activeTab, setActiveTab] = useState<ActiveTab>('workspace');
@@ -144,97 +152,35 @@ export const InvestigationsPanel = (): JSX.Element => {
       return;
     }
 
+    let isDisposed = false;
+    let isAnalysisInFlight = false;
+
     const runOffThreadAnalysis = async (): Promise<void> => {
+      if (isDisposed || isAnalysisInFlight) return;
+      isAnalysisInFlight = true;
       setLoading(true);
       try {
-        const workerClient = getEngineWorkerClient();
-        const now = Date.now();
-
-        // Pass customRules associated with the active investigation
         const activeCustomRules = activeInv?.customRules || [];
+        const entitySet = await buildInvestigationEntitiesAction(
+          selectedFilePath,
+          activeCustomRules,
+        );
 
-        // 1. Detect Incidents
-        const incidentRes = await workerClient.request({
-          type: 'detectIncidents',
-          requestId: `incidents:${selectedFilePath}:${now}`,
-          sourceId: selectedFilePath,
-          customRules: activeCustomRules,
-        });
-        let freshIncidents: Incident[] = [];
-        if (incidentRes.type === 'detectIncidents:done') {
-          setIncidents(incidentRes.incidents);
-          freshIncidents = incidentRes.incidents;
-        }
-
-        // 2. Reconstruct State Machines
-        const stateRes = await workerClient.request({
-          type: 'reconstructStates',
-          requestId: `states:${selectedFilePath}:${now}`,
-          sourceId: selectedFilePath,
-          customRules: activeCustomRules,
-        });
-        let freshSequence: StateTransitionSequence | null = null;
-        if (stateRes.type === 'reconstructStates:done') {
-          setStateSequence(stateRes.sequence);
-          freshSequence = stateRes.sequence;
-        }
-
-        // 3. Detect Failure Chains
-        if (freshIncidents.length > 0) {
-          const chainRes = await workerClient.request({
-            type: 'detectFailureChains',
-            requestId: `chains:${selectedFilePath}:${now}`,
-            sourceId: selectedFilePath,
-            incidents: freshIncidents,
-          });
-          if (chainRes.type === 'detectFailureChains:done') {
-            setFailureChains(chainRes.chains);
-          }
-        } else {
-          setFailureChains([]);
-        }
-
-        // 4. Validate Domain Rules
-        const ruleRes = await workerClient.request({
-          type: 'validateDomainRules',
-          requestId: `rules:${selectedFilePath}:${now}`,
-          sourceId: selectedFilePath,
-          customRules: activeCustomRules,
-        });
-        let freshRules: DomainRuleResult[] = [];
-        if (ruleRes.type === 'validateDomainRules:done') {
-          setRuleResults(ruleRes.results);
-          freshRules = ruleRes.results;
-        }
-
-        // 5. Calculate Operational Degradation Score
-        const degradationRes = await workerClient.request({
-          type: 'calculateDegradationScore',
-          requestId: `degradation:${selectedFilePath}:${now}`,
-          sourceId: selectedFilePath,
-          incidents: freshIncidents,
-          ruleResults: freshRules,
-        });
-        if (degradationRes.type === 'calculateDegradationScore:done') {
-          setDegradation(degradationRes.result);
-        }
-
-        // 6. Compile Incident Relationship Graph
-        const graphRes = await workerClient.request({
-          type: 'compileIncidentGraph',
-          requestId: `graph:${selectedFilePath}:${now}`,
-          sourceId: selectedFilePath,
-          incidents: freshIncidents,
-          sequence: freshSequence,
-          ruleResults: freshRules,
-        });
-        if (graphRes.type === 'compileIncidentGraph:done') {
-          setIncidentGraph(graphRes.graph);
+        if (entitySet && !isDisposed) {
+          setIncidents(entitySet.incidents);
+          setStateSequence(entitySet.stateSequence);
+          setFailureChains(entitySet.failureChains);
+          setRuleResults(entitySet.ruleResults);
+          setDegradation(entitySet.degradation);
+          setIncidentGraph(entitySet.incidentGraph);
         }
       } catch (err) {
         console.error('Failed to run operational correlation analysis:', err);
       } finally {
-        setLoading(false);
+        isAnalysisInFlight = false;
+        if (!isDisposed) {
+          setLoading(false);
+        }
       }
     };
 
@@ -242,8 +188,11 @@ export const InvestigationsPanel = (): JSX.Element => {
 
     // Poll for updates every 8 seconds if live Monitoring or tail mode is running
     const interval = setInterval(runOffThreadAnalysis, 8000);
-    return () => clearInterval(interval);
-  }, [selectedFilePath, activeInv?.customRules]);
+    return () => {
+      isDisposed = true;
+      clearInterval(interval);
+    };
+  }, [selectedFilePath, activeInv?.customRules, buildInvestigationEntitiesAction]);
 
   // Phase 10: Prioritized Triage Trigger
   useEffect(() => {
@@ -540,6 +489,10 @@ export const InvestigationsPanel = (): JSX.Element => {
     const rankB = triageRanks.find((r) => r.incidentId === b.id);
     return (rankB?.severityScore || 0) - (rankA?.severityScore || 0);
   });
+  const entityCount = investigationEntitySet?.processingStats.entitiesDetected ?? 0;
+  const entitySequenceCount = investigationEntitySet?.operationalSequences.length ?? 0;
+  const entityRuleViolationCount = investigationEntitySet?.ruleViolations.length ?? 0;
+  const entityTimelineCount = investigationEntitySet?.timelineEvents.length ?? 0;
 
   return (
     <div className="flex h-full w-full flex-col bg-ink-950 text-readable font-mono select-none overflow-hidden border-l border-ink-800">
@@ -564,6 +517,16 @@ export const InvestigationsPanel = (): JSX.Element => {
             >
               {activeInv?.title || 'Draft Case'}
             </span>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 text-[9px] text-subtle">
+            <span className="truncate">
+              Entities: {entityBuildStatus?.state === 'building' ? 'building' : entityCount}
+            </span>
+            {entityBuildStatus?.state === 'error' && (
+              <span className="truncate text-danger" title={entityBuildStatus.message}>
+                Entity build failed
+              </span>
+            )}
           </div>
         </div>
 
@@ -678,6 +641,68 @@ export const InvestigationsPanel = (): JSX.Element => {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {investigationEntitySet && (
+              <div className="p-2.5 bg-ink-900/50 border border-ink-800 rounded-lg space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[9px] font-bold text-accent uppercase tracking-wider">
+                    Deterministic Entity Foundation
+                  </span>
+                  <span
+                    className="text-[8px] text-subtle font-bold truncate"
+                    title={entityBuildStatus?.message}
+                  >
+                    {investigationEntitySet.processingStats.processingDurationMs}ms
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-center">
+                  <div className="bg-ink-950 border border-ink-850 rounded px-1.5 py-1">
+                    <div className="text-[11px] text-readable font-extrabold">
+                      {entitySequenceCount}
+                    </div>
+                    <div className="text-[8px] text-subtle uppercase">Sequences</div>
+                  </div>
+                  <div className="bg-ink-950 border border-ink-850 rounded px-1.5 py-1">
+                    <div className="text-[11px] text-readable font-extrabold">
+                      {entityRuleViolationCount}
+                    </div>
+                    <div className="text-[8px] text-subtle uppercase">Violations</div>
+                  </div>
+                  <div className="bg-ink-950 border border-ink-850 rounded px-1.5 py-1">
+                    <div className="text-[11px] text-readable font-extrabold">
+                      {entityTimelineCount}
+                    </div>
+                    <div className="text-[8px] text-subtle uppercase">Timeline</div>
+                  </div>
+                </div>
+
+                {investigationEntitySet.ruleViolations.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    {investigationEntitySet.ruleViolations.slice(0, 3).map((violation) => (
+                      <button
+                        key={violation.id}
+                        onClick={() => {
+                          const lineNumber = violation.evidenceRefs[0]?.lineNumber;
+                          if (lineNumber) {
+                            scrollToLineRowIndex(lineNumber - 1);
+                          }
+                        }}
+                        className="w-full min-w-0 text-left bg-ink-950 hover:border-accent border border-ink-850 rounded px-2 py-1 transition"
+                        title={violation.explanation.summary}
+                      >
+                        <span className="block truncate text-[9px] font-bold text-warning">
+                          {violation.ruleName}
+                        </span>
+                        <span className="block truncate text-[8px] text-subtle">
+                          Line {violation.evidenceRefs[0]?.lineNumber ?? 'n/a'} -{' '}
+                          {violation.evidenceSummary.totalFrames} evidence frames
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1011,7 +1036,12 @@ export const InvestigationsPanel = (): JSX.Element => {
                           </button>
                           <button
                             onClick={async () => {
-                              if (incident.entryIds[0]) {
+                              const primaryLineNumber =
+                                incident.primaryLineNumber ??
+                                incident.evidenceRefs?.[0]?.lineNumber;
+                              if (primaryLineNumber) {
+                                scrollToLineRowIndex(primaryLineNumber - 1);
+                              } else if (incident.entryIds[0]) {
                                 const viewportEntries =
                                   useViewerStore.getState().viewportEntriesByPath[
                                     selectedFilePath || ''
@@ -1429,21 +1459,15 @@ export const InvestigationsPanel = (): JSX.Element => {
                               {rule.evidenceEntryIds.slice(0, 10).map((id, idx) => (
                                 <button
                                   key={id}
-                                  onClick={async () => {
-                                    try {
-                                      const client = getEngineWorkerClient();
-                                      const res = await client.request({
-                                        type: 'getVisibleWindow',
-                                        requestId: `rule-ev:${id}:${Date.now()}`,
-                                        sourceId: selectedFilePath,
-                                        startRow: 0,
-                                        endRow: 1,
-                                      });
-                                      if (res.type === 'getVisibleWindow:done' && res.window) {
-                                        scrollToLineRowIndex(res.window.startRow);
-                                      }
-                                    } catch (e) {
-                                      console.warn('Failed to retrieve violation coordinates', e);
+                                  onClick={() => {
+                                    const violation = investigationEntitySet?.ruleViolations.find(
+                                      (item) => item.ruleId === rule.ruleId,
+                                    );
+                                    const lineNumber =
+                                      violation?.evidenceRefs.find((ref) => ref.entryId === id)
+                                        ?.lineNumber ?? violation?.evidenceRefs[idx]?.lineNumber;
+                                    if (lineNumber) {
+                                      scrollToLineRowIndex(lineNumber - 1);
                                     }
                                   }}
                                   className="bg-ink-950 border border-danger/30 text-danger font-bold text-[8px] px-1.5 py-0.2 rounded hover:border-danger transition"
